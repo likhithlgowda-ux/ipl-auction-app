@@ -903,14 +903,29 @@ export default function RoomPage() {
     if (!playerId) return;
 
     const satOut = auctionNow.satOutTeams || {};
-    if (satOut[localTeamId]) {
-      return;
-    }
+if (satOut[localTeamId]) {
+  return;
+}
 
-    const newSatOut: Record<string, boolean> = {
-      ...satOut,
-      [localTeamId]: true
-    };
+// If team is out of purse or already has 25 players, force sat-out
+const teamsNow = teams;
+const myTeamNow = teamsNow[localTeamId];
+const myCount =
+  myTeamNow?.playersBought
+    ? Object.keys(myTeamNow.playersBought).length
+    : 0;
+const forceSatOut =
+  teamOutOfPurse(myTeamNow) || myCount >= 25;
+
+const newSatOut: Record<string, boolean> = {
+  ...satOut,
+  [localTeamId]: true
+};
+
+if (forceSatOut) {
+  // just mark sat-out and continue with rest of logic
+}
+
 
     const teamIds = Object.keys(teams);
     const activeTeamIds = teamIds.filter(
@@ -1453,7 +1468,9 @@ export default function RoomPage() {
     safeNum(myTeam.timeBankSeconds ?? 0) >= 15;
 
   const canSitOut =
-    auction.status === "running" && !!currentPlayerId;
+  auction.status === "running" &&
+  !!currentPlayerId &&
+  !isMyTeamHighestBidder;
 
   const isSatOutForCurrentPlayer =
     !!(auction.satOutTeams &&
@@ -2027,18 +2044,17 @@ export default function RoomPage() {
                               </div>
                               <div className="flex flex-wrap items-center gap-3 text-xs mb-2">
                                 <button
-                                  onClick={handleSitOut}
-                                  disabled={!canSitOut || isSatOutForCurrentPlayer}
-                                  className={`px-4 py-2 rounded text-sm font-semibold ${
-                                    isSatOutForCurrentPlayer
-                                      ? "bg-red-700"
-                                      : "bg-gray-700"
-                                  } disabled:bg-gray-900`}
-                                >
-                                  {isSatOutForCurrentPlayer
-                                    ? "Sitting out (locked)"
-                                    : "Sit out this player"}
-                                </button>
+  onClick={handleSitOut}
+  disabled={!canSitOut || isSatOutForCurrentPlayer}
+  className={`px-4 py-2 rounded text-sm font-semibold ${
+    isSatOutForCurrentPlayer
+      ? "bg-red-700"
+      : "bg-gray-700"
+  } disabled:bg-gray-900`}
+>
+  {isSatOutForCurrentPlayer ? "Sitting out (locked)" : "Sit out this player"}
+</button>
+
                                 <button
                                   onClick={handleUseTimeBank}
                                   disabled={!canUseTimeBank}
