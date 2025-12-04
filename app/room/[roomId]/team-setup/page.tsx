@@ -108,7 +108,10 @@ function normalizeRoleSlots(
     const obj = raw as Record<string, unknown>;
     const arr: (string | null)[] = [];
     for (let i = 0; i < length; i++) {
-      const v = (obj[i] ?? obj[String(i)]) as string | null | undefined;
+      const v = (obj[i] ?? obj[String(i)]) as
+        | string
+        | null
+        | undefined;
       arr.push(v ?? null);
     }
     return arr;
@@ -135,9 +138,6 @@ export default function TeamSetupPage() {
   const [layouts, setLayouts] = useState<TeamLayouts>({});
   const [authUid, setAuthUid] = useState<string | null>(null);
   const [localTeamId, setLocalTeamId] = useState<string | null>(null);
-  const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(
-    null
-  );
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(
     null
   );
@@ -273,13 +273,16 @@ export default function TeamSetupPage() {
     };
 
     update(ref(db), {
-      [`rooms/${dbRoomId}/teamLayout/${effectiveTeamId}`]: defaultLayout
+      [`rooms/${dbRoomId}/teamLayout/${effectiveTeamId}`]:
+        defaultLayout
     }).catch(console.error);
   }, [dbRoomId, effectiveTeamId, layouts]);
 
   // ---------- Local view of layout (normalized slots) ----------
   const myLayout: TeamLayout = useMemo(() => {
-    const existing = effectiveTeamId ? layouts[effectiveTeamId] : undefined;
+    const existing = effectiveTeamId
+      ? layouts[effectiveTeamId]
+      : undefined;
     const baseSlots = existing?.slots || {};
 
     return {
@@ -320,18 +323,20 @@ export default function TeamSetupPage() {
 
   const myBoughtPlayers = useMemo(() => {
     if (!localTeam?.playersBought) return [];
-    return Object.entries(localTeam.playersBought).map(([pid, info]) => {
-      const sp = scoreMap[pid];
-      return {
-        id: pid,
-        name: info.name,
-        priceLakhs: info.priceLakhs,
-        battingScore: sp?.battingScore ?? 0,
-        bowlingScore: sp?.bowlingScore ?? 0,
-        allRounderScore: sp?.allRounderScore ?? 0,
-        alreadyAssigned: assignedPlayerIds.has(pid)
-      };
-    });
+    return Object.entries(localTeam.playersBought).map(
+      ([pid, info]) => {
+        const sp = scoreMap[pid];
+        return {
+          id: pid,
+          name: info.name,
+          priceLakhs: info.priceLakhs,
+          battingScore: sp?.battingScore ?? 0,
+          bowlingScore: sp?.bowlingScore ?? 0,
+          allRounderScore: sp?.allRounderScore ?? 0,
+          alreadyAssigned: assignedPlayerIds.has(pid)
+        };
+      }
+    );
   }, [localTeam, scoreMap, assignedPlayerIds]);
 
   const handleAssignToSlot = async (
@@ -437,28 +442,14 @@ export default function TeamSetupPage() {
                 className={`border border-gray-700 rounded p-2 text-xs min-h-[60px] flex flex-col justify-between ${
                   !pid ? "bg-black/40" : "bg-black/70"
                 }`}
-                draggable={!!pid && !finalized}
-                onDragStart={() => {
-                  if (!pid || finalized) return;
-                  // Dragging from slot
-                  setDraggingPlayerId(pid);
-                }}
-                onDragEnd={() => {
-                  setDraggingPlayerId(null);
-                }}
-                onDragOver={(e) => {
-                  if (!finalized) e.preventDefault();
-                }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  if (finalized || !draggingPlayerId) return;
-                  void handleAssignToSlot(role, idx, draggingPlayerId);
-                  setDraggingPlayerId(null);
-                }}
                 onClick={() => {
                   if (finalized) return;
                   if (selectedPlayerId) {
-                    void handleAssignToSlot(role, idx, selectedPlayerId);
+                    void handleAssignToSlot(
+                      role,
+                      idx,
+                      selectedPlayerId
+                    );
                     setSelectedPlayerId(null);
                   }
                 }}
@@ -472,7 +463,11 @@ export default function TeamSetupPage() {
                       className="text-[10px] text-red-400"
                       onClick={(e) => {
                         e.stopPropagation();
-                        void handleAssignToSlot(role, idx, null);
+                        void handleAssignToSlot(
+                          role,
+                          idx,
+                          null
+                        );
                       }}
                     >
                       clear
@@ -492,13 +487,13 @@ export default function TeamSetupPage() {
                   </div>
                 ) : (
                   <p className="text-[11px] text-gray-500 mt-1">
-                    {`Drop ${
+                    {`Click a ${
                       role === "BAT"
                         ? "batsman"
                         : role === "AR"
                         ? "all-rounder"
                         : "bowler"
-                    } here`}
+                    } to assign here`}
                   </p>
                 )}
               </div>
@@ -518,7 +513,8 @@ export default function TeamSetupPage() {
             Team structuring – Room {displayRoomId}
           </h1>
           <p className="text-sm text-gray-400 mt-1">
-            Arrange your slots; you must use all players you bought, up to 15.
+            Arrange your slots; you must use all players you bought, up
+            to 15.
           </p>
           <p className="text-sm mt-1">
             You are:{" "}
@@ -533,7 +529,8 @@ export default function TeamSetupPage() {
         <div className="text-right text-xs text-gray-400">
           <p>Season: {room.config?.season ?? "unknown"}</p>
           <p className="mt-1">
-            Players bought: {boughtCount}, required slots: {requiredSlots}
+            Players bought: {boughtCount}, required slots:{" "}
+            {requiredSlots}
           </p>
           {finalized && (
             <p className="mt-1 text-emerald-400">
@@ -545,30 +542,7 @@ export default function TeamSetupPage() {
 
       <section className="grid md:grid-cols-2 gap-4 flex-1">
         {/* Left: bought players */}
-        <aside
-          className="bg-gray-900 rounded p-4 overflow-y-auto"
-          onDragOver={(e) => {
-            if (draggingPlayerId && !myLayout.finalized) {
-              e.preventDefault();
-            }
-          }}
-          onDrop={(e) => {
-            e.preventDefault();
-            if (!draggingPlayerId || myLayout.finalized) return;
-
-            const roles: Role[] = ["BAT", "AR", "BOWL"];
-            roles.forEach((role) => {
-              const slots = myLayout.slots[role] as (string | null)[];
-              slots.forEach((pid, idx) => {
-                if (pid === draggingPlayerId) {
-                  void handleAssignToSlot(role, idx, null);
-                }
-              });
-            });
-
-            setDraggingPlayerId(null);
-          }}
-        >
+        <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
           <h2 className="text-lg font-semibold mb-2">
             Your bought players
           </h2>
@@ -582,16 +556,14 @@ export default function TeamSetupPage() {
                 <li
                   key={p.id}
                   className={`border border-gray-800 rounded p-2 flex flex-col gap-0.5 ${
-                    p.alreadyAssigned ? "opacity-60" : "cursor-move"
+                    p.alreadyAssigned
+                      ? "opacity-60"
+                      : "cursor-pointer"
                   } ${
-                    selectedPlayerId === p.id ? "ring-2 ring-blue-500" : ""
+                    selectedPlayerId === p.id
+                      ? "ring-2 ring-blue-500"
+                      : ""
                   }`}
-                  draggable={!p.alreadyAssigned && !finalized}
-                  onDragStart={() => {
-                    if (finalized || p.alreadyAssigned) return;
-                    setDraggingPlayerId(p.id);
-                  }}
-                  onDragEnd={() => setDraggingPlayerId(null)}
                   onClick={() => {
                     if (finalized || p.alreadyAssigned) return;
                     setSelectedPlayerId(
@@ -629,9 +601,11 @@ export default function TeamSetupPage() {
             Your playing slots
           </h2>
           <p className="text-xs text-gray-400 mb-3">
-            Drag a player from the left (or click then click a slot) to assign.
-            You can also drag a player from a slot back to the left list to
-            unassign them. You must place all the players you bought (up to 15).
+            Click a player on the left to select, then click a slot to
+            assign. Use the{" "}
+            <span className="font-semibold">clear</span> button on a
+            slot to unassign. You must place all the players you bought
+            (up to 15).
           </p>
           <div className="flex-1 overflow-y-auto">
             {renderSlotRow("BAT", "bg-blue-950/40")}
