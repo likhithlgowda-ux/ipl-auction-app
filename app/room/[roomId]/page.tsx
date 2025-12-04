@@ -11,11 +11,7 @@ import {
   get,
   push
 } from "firebase/database";
-import {
-  getAuth,
-  onAuthStateChanged,
-  signInAnonymously
-} from "firebase/auth";
+import { getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { db } from "../../../lib/firebase";
 
 type Team = {
@@ -115,10 +111,7 @@ function safeNum(n: unknown): number {
   return isNaN(v) ? 0 : v;
 }
 
-function formatAmount(
-  valueLakhs: unknown,
-  showInCrores: boolean
-): string {
+function formatAmount(valueLakhs: unknown, showInCrores: boolean): string {
   const v = safeNum(valueLakhs);
   if (showInCrores) {
     const crores = v / 100;
@@ -140,11 +133,11 @@ const TEAM_COLORS = [
   "#F97373"
 ];
 
-// Base price rule: sets 1–2 => 2 Cr, sets 3–5 => 1 Cr, sets 6+ => 0.5 Cr
+// Base price rule: sets 1–2: 2 Cr, sets 3–5: 1 Cr, sets 6+: 0.5 Cr
 function getBasePriceLakhsForSet(setIndex: number): number {
-  if (setIndex < 2) return 200; // 2 Cr
-  if (setIndex < 5) return 100; // 1 Cr
-  return 50; // 0.5 Cr
+  if (setIndex <= 1) return 200;
+  if (setIndex <= 4) return 100;
+  return 50;
 }
 
 // Fisher–Yates shuffle
@@ -157,13 +150,15 @@ function shuffleArray<T>(arr: T[]): T[] {
   return a;
 }
 
-// Decide if auction should end early based on purse/players
+// Decide if auction should end early based on purse / players
 function computeFinalAuctionStatus(
   nextStatusFromSets: AuctionState["status"],
-  teamsAfter: Record<string, Team> | undefined
+  teamsAfter: Record<string, Team>
 ): AuctionState["status"] {
-  const vals = Object.values(teamsAfter || {});
-  if (vals.length === 0) return nextStatusFromSets ?? "finished";
+  const vals = Object.values(teamsAfter);
+  if (vals.length === 0) {
+    return nextStatusFromSets ?? "finished";
+  }
 
   const allNoPurse = vals.every(
     (t) => safeNum(t.purseRemainingLakhs) < 50
@@ -175,14 +170,14 @@ function computeFinalAuctionStatus(
     return count >= 25;
   });
 
-  if (allNoPurse && allOverLimit) return "finished";
+  if (allNoPurse || allOverLimit) return "finished";
   if (nextStatusFromSets === "finished") return "finished";
   return "running";
 }
 
 function teamOutOfPurse(team: Team | undefined): boolean {
   if (!team) return true;
-  return safeNum(team.purseRemainingLakhs) < 50; // 0.5 Cr
+  return safeNum(team.purseRemainingLakhs) < 50; // < 0.5 Cr
 }
 
 function isEffectivelySatOut(
@@ -193,13 +188,18 @@ function isEffectivelySatOut(
   const team = teams[teamId];
   if (!team) return true;
   if (teamOutOfPurse(team)) return true;
-  return !!auction.satOutTeams?.[teamId];
+  return !!(auction.satOutTeams && auction.satOutTeams[teamId]);
 }
 
 // If exactly one active (not sat-out) team holds the highest bid, instantly sell to them.
 async function autoSellToSingleActiveBidder(roomId: string) {
   const auctionRef = ref(db, `rooms/${roomId}/auction`);
-  const auctionSnap = await get(auctionRef);
+  const [auctionSnap, teamsSnap, playersSnap] = await Promise.all([
+    get(auctionRef),
+    get(ref(db, `rooms/${roomId}/teams`)),
+    get(ref(db, `rooms/${roomId}/players`))
+  ]);
+
   const auctionNow = (auctionSnap.val() as AuctionState) || {};
   if (auctionNow.status !== "running") return;
 
@@ -210,12 +210,10 @@ async function autoSellToSingleActiveBidder(roomId: string) {
   const playerId = currentSet[playerIndex];
   if (!playerId) return;
 
-  const [teamsSnap, playersSnap] = await Promise.all([
-    get(ref(db, `rooms/${roomId}/teams`)),
-    get(ref(db, `rooms/${roomId}/players`))
-  ]);
   const teams = (teamsSnap.val() as Record<string, Team>) || {};
   const players = (playersSnap.val() as Record<string, Player>) || {};
+  const player = players[playerId];
+  if (!player) return;
 
   const activeTeamIds = Object.keys(teams).filter(
     (id) => !isEffectivelySatOut(id, auctionNow, teams)
@@ -231,16 +229,15 @@ async function autoSellToSingleActiveBidder(roomId: string) {
 
   const lastTeamId = activeTeamIds[0];
   if (lastTeamId !== auctionNow.currentBidTeamId) return;
+
   const team = teams[lastTeamId];
-  const player = players[playerId];
-  if (!team || !player) return;
+  if (!team) return;
 
   const newPurse =
     safeNum(team.purseRemainingLakhs) - auctionNow.currentBidLakhs;
 
-  const updates: Record<string, any> = {};
   const playerPath = `rooms/${roomId}/players/${playerId}`;
-  const auctionPath = `rooms/${roomId}/auction`;
+  const updates: Record<string, any> = {};
 
   updates[`${playerPath}/status`] = "sold";
   updates[`${playerPath}/soldToTeamId`] = lastTeamId;
@@ -258,6 +255,7 @@ async function autoSellToSingleActiveBidder(roomId: string) {
   const priceCr = (auctionNow.currentBidLakhs / 100).toFixed(2);
   const resultMessage = `${player.name} sold to ${team.name} for ${priceCr} Cr`;
 
+  const auctionPath = `rooms/${roomId}/auction`;
   const now = Date.now();
   updates[`${auctionPath}/currentBidLakhs`] = null;
   updates[`${auctionPath}/currentBidTeamId`] = null;
@@ -277,7 +275,7 @@ async function autoSellToSingleActiveBidder(roomId: string) {
 }
 
 function downloadTextFile(filename: string, text: string) {
-  const blob = new Blob([text], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob([text], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -292,7 +290,7 @@ function toCsv(rows: string[][]): string {
       r
         .map((cell) => {
           const c = String(cell ?? "");
-          if (c.includes('"') || c.includes(",") || c.includes("\n")) {
+          if (c.includes(",") || c.includes('"') || c.includes("\n")) {
             return `"${c.replace(/"/g, '""')}"`;
           }
           return c;
@@ -305,10 +303,7 @@ function toCsv(rows: string[][]): string {
 async function appendLog(roomId: string, message: string) {
   try {
     const logRef = ref(db, `rooms/${roomId}/logs`);
-    await push(logRef, {
-      ts: Date.now(),
-      message
-    });
+    await push(logRef, { ts: Date.now(), message });
   } catch (err) {
     console.error("Failed to append log", err);
   }
@@ -318,83 +313,86 @@ export default function RoomPage() {
   const params = useParams<{ roomId: string }>();
   const router = useRouter();
 
-  // Normalize route param to DB key + display code (6-letter codes are case-insensitive)
+  // Normalize route param to DB key / display code (6-letter codes are case-insensitive).
   const routeParam = params.roomId;
   const rawId = Array.isArray(routeParam)
     ? routeParam[0]
     : String(routeParam);
+
   const isShortCode =
     rawId.length === 6 && /^[A-Za-z]+$/.test(rawId);
+
   const dbRoomId = isShortCode ? rawId.toLowerCase() : rawId;
   const displayRoomId = isShortCode ? rawId.toUpperCase() : rawId;
 
   const [room, setRoom] = useState<RoomData | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(true);
-  const [editingConfig, setEditingConfig] =
-    useState<RoomConfig | null>(null);
+
+  const [editingConfig, setEditingConfig] = useState<RoomConfig | null>(null);
   const [savingConfig, setSavingConfig] = useState(false);
+
   const [seasonPlayers, setSeasonPlayers] =
     useState<Record<string, SeasonPlayer>>({});
   const [loadingSeason, setLoadingSeason] = useState(false);
+
   const [showInCrores, setShowInCrores] = useState(true);
+
   const [view, setView] = useState<"config" | "auction">("config");
-  const [tab, setTab] =
-    useState<"auction" | "results">("auction");
-  const [topRightMode, setTopRightMode] =
-    useState<"set" | "log">("set");
+  const [tab, setTab] = useState<"auction" | "results">("auction");
+  const [topRightMode, setTopRightMode] = useState<"set" | "log">("set");
 
   const [authUid, setAuthUid] = useState<string | null>(null);
-  const [localTeamId, setLocalTeamId] = useState<string | null>(
-    null
-  );
+
+  const [localTeamId, setLocalTeamId] = useState<string | null>(null);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [teamNameInput, setTeamNameInput] = useState("");
-  const [teamModalError, setTeamModalError] =
-    useState<string | null>(null);
+  const [teamModalError, setTeamModalError] = useState<string | null>(null);
   const [creatingTeam, setCreatingTeam] = useState(false);
 
-  const [customBidInput, setCustomBidInput] = useState("");
-  const [remainingSeconds, setRemainingSeconds] = useState<
-    number | null
-  >(null);
-  const [bottomListMode, setBottomListMode] =
-    useState<"teams" | "sets">("teams");
-  const [selectedTeamId, setSelectedTeamId] = useState<
-    string | null
-  >(null);
-  const [selectedSetIndex, setSelectedSetIndex] = useState<
-    number | null
-  >(null);
+  const [customBidInput, setCustomBidInput] = useState<string>("");
 
-  // ---------- Auth ----------
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(
+    null
+  );
+
+  const [bottomListMode, setBottomListMode] = useState<"teams" | "sets">(
+    "teams"
+  );
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(
+    null
+  );
+  const [selectedSetIndex, setSelectedSetIndex] = useState<number | null>(
+    null
+  );
+
+  // Auth
   useEffect(() => {
     const auth = getAuth();
     const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) setAuthUid(user.uid);
-      else
-        signInAnonymously(auth).catch((err) =>
-          console.error("Anonymous sign-in failed", err)
-        );
+      if (user) {
+        setAuthUid(user.uid);
+      } else {
+        signInAnonymously(auth).catch((err) => {
+          console.error("Anonymous sign-in failed", err);
+        });
+      }
     });
     return () => unsub();
   }, []);
 
-  // ---------- Subscribe to room ----------
+  // Subscribe to room
   useEffect(() => {
     if (!dbRoomId) return;
     const roomRef = ref(db, `rooms/${dbRoomId}`);
     const unsubscribe = onValue(roomRef, (snapshot) => {
-      const val = (snapshot.val() as RoomData) || null;
+      const val = snapshot.val() as RoomData | null;
       setRoom(val);
       setLoadingRoom(false);
       if (val?.config && !editingConfig) {
         setEditingConfig(val.config);
       }
     });
-
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [dbRoomId, editingConfig]);
 
   const cfg: RoomConfig = editingConfig || room?.config || {};
@@ -406,40 +404,36 @@ export default function RoomPage() {
     }
   }, [room?.auction?.sets, room?.auction?.status]);
 
-  // ---------- Local team selection per room ----------
+  // Local-team selection per room
   useEffect(() => {
     if (!dbRoomId) return;
     if (typeof window === "undefined") return;
     const key = `ipl_team_${dbRoomId}`;
     const stored = window.localStorage.getItem(key);
-    if (stored) setLocalTeamId(stored);
-    else setShowTeamModal(true);
+    if (stored) {
+      setLocalTeamId(stored);
+    } else {
+      setShowTeamModal(true);
+    }
   }, [dbRoomId]);
 
-  // ---------- Load season players ----------
+  // Load season players
   useEffect(() => {
     if (!cfg.season) return;
     setLoadingSeason(true);
     const seasonRef = ref(db, `seasons/${cfg.season}/players`);
     const unsubscribe = onValue(seasonRef, (snapshot) => {
-      const val =
-        (snapshot.val() as Record<string, SeasonPlayer>) || {};
-      setSeasonPlayers(val);
+      const val = snapshot.val() as Record<string, SeasonPlayer> | null;
+      setSeasonPlayers(val || {});
       setLoadingSeason(false);
     });
-    return () => {
-      unsubscribe();
-    };
+    return () => unsubscribe();
   }, [cfg.season]);
 
-  const handleConfigChange = (
-    field: keyof RoomConfig,
-    value: string
-  ) => {
+  const handleConfigChange = (field: keyof RoomConfig, value: string) => {
     setEditingConfig((prev) => ({
       ...(prev || {}),
-      [field]:
-        field === "season" ? value : Number(value)
+      [field]: field === "season" ? value : Number(value)
     }));
   };
 
@@ -460,15 +454,15 @@ export default function RoomPage() {
     }
   };
 
-  // ---------- Scoring ----------
+  // Scoring
   const scoredPlayers: ScoredPlayer[] = useMemo(() => {
     const CF1 = safeNum(cfg.CF1 ?? 30);
     const CF2 = safeNum(cfg.CF2 ?? 2000);
     const CF3 = safeNum(cfg.CF3 ?? 1);
     const list: ScoredPlayer[] = [];
     Object.entries(seasonPlayers || {}).forEach(([id, p]) => {
-      const bat = p.batting as SeasonPlayer["batting"];
-      const bowl = p.bowling as SeasonPlayer["bowling"];
+      const bat = p.batting || ({} as SeasonPlayer["batting"]);
+      const bowl = p.bowling || ({} as SeasonPlayer["bowling"]);
       const battingScore =
         safeNum(bat.runs) +
         safeNum(bat.sr) +
@@ -513,7 +507,7 @@ export default function RoomPage() {
     [scoredPlayers]
   );
 
-  // ---------- Generate sets + players ----------
+  // Generate sets + players
   const handleGenerateSets = async () => {
     if (!dbRoomId) return;
     if (scoredPlayers.length === 0) {
@@ -532,7 +526,6 @@ export default function RoomPage() {
         const setIndex = Math.floor(index / SET_SIZE);
         if (!rawSets[setIndex]) rawSets[setIndex] = [];
         rawSets[setIndex].push(p.id);
-
         const basePriceLakhs = getBasePriceLakhsForSet(setIndex);
         playersObj[p.id] = {
           name: p.name,
@@ -559,7 +552,6 @@ export default function RoomPage() {
         resultMessage: null,
         resultUntilTs: null
       };
-
       await update(ref(db), updates);
     } catch (err) {
       console.error(err);
@@ -573,26 +565,16 @@ export default function RoomPage() {
     setView("auction");
   };
 
-  // ---------- Advance to next player ----------
   const advanceToNextPlayerFields = (
     auction: AuctionState
-  ): {
-    nextSetIndex: number;
-    nextPlayerIndex: number;
-    nextStatus: AuctionState["status"];
-  } => {
+  ): { nextSetIndex: number; nextPlayerIndex: number; nextStatus: AuctionState["status"] } => {
     const sets = auction.sets || [];
     let setIndex = auction.currentSetIndex ?? 0;
     let playerIndex = auction.currentPlayerIndex ?? 0;
-    let status: AuctionState["status"] =
-      auction.status ?? "running";
+    let status: AuctionState["status"] = auction.status ?? "running";
 
     if (sets.length === 0) {
-      return {
-        nextSetIndex: 0,
-        nextPlayerIndex: 0,
-        nextStatus: "finished"
-      };
+      return { nextSetIndex: 0, nextPlayerIndex: 0, nextStatus: "finished" };
     }
 
     const currentSet = sets[setIndex] || [];
@@ -604,7 +586,6 @@ export default function RoomPage() {
     } else {
       status = "finished";
     }
-
     return {
       nextSetIndex: setIndex,
       nextPlayerIndex: playerIndex,
@@ -614,12 +595,12 @@ export default function RoomPage() {
 
   const handleNextPlayer = async () => {
     if (!dbRoomId || !room?.auction) return;
+
     if (room.auction.currentBidLakhs != null) {
-      alert(
-        "Cannot skip to next player while there is an active bid."
-      );
+      alert("Cannot skip to next player while there is an active bid.");
       return;
     }
+
     const tms = room.teams || {};
     const earlyStatus = computeFinalAuctionStatus(
       room.auction.status ?? "running",
@@ -633,11 +614,9 @@ export default function RoomPage() {
       return;
     }
 
-    const {
-      nextSetIndex,
-      nextPlayerIndex,
-      nextStatus
-    } = advanceToNextPlayerFields(room.auction);
+    const { nextSetIndex, nextPlayerIndex, nextStatus } =
+      advanceToNextPlayerFields(room.auction);
+
     const updates: Record<string, any> = {
       currentSetIndex: nextSetIndex,
       currentPlayerIndex: nextPlayerIndex,
@@ -655,10 +634,7 @@ export default function RoomPage() {
       updates.bidDeadlineTs = null;
     }
 
-    await update(
-      ref(db, `rooms/${dbRoomId}/auction`),
-      updates
-    );
+    await update(ref(db, `rooms/${dbRoomId}/auction`), updates);
     setCustomBidInput("");
   };
 
@@ -677,29 +653,24 @@ export default function RoomPage() {
     const playerIndex = auctionNow.currentPlayerIndex ?? 0;
     const hasPlayer =
       sets.length > 0 &&
-      !!sets[setIndex] &&
-      !!sets[setIndex][playerIndex];
+      !!(sets[setIndex] && sets[setIndex][playerIndex]);
 
     const updates: Record<string, any> = {
       status: "running",
       resultMessage: null,
       resultUntilTs: null
     };
-
     if (hasPlayer) {
-      updates.bidDeadlineTs =
-        auctionNow.bidDeadlineTs ?? Date.now() + 30000;
-      updates.currentBidLakhs =
-        auctionNow.currentBidLakhs ?? null;
-      updates.currentBidTeamId =
-        auctionNow.currentBidTeamId ?? null;
+      updates.bidDeadlineTs = Date.now() + 30000;
+      updates.currentBidLakhs = auctionNow.currentBidLakhs ?? null;
+      updates.currentBidTeamId = auctionNow.currentBidTeamId ?? null;
       updates.satOutTeams = null;
     }
 
     await update(auctionRef, updates);
   };
 
-  // ---------- Bidding handlers (with auto-sell removed) ----------
+  // First bidder owns base price
   const handleStartBidding = async (
     basePriceLakhs: number,
     playerId: string | null
@@ -728,6 +699,9 @@ export default function RoomPage() {
       alert("Auction is not running.");
       return;
     }
+    if (auctionNow.currentBidLakhs != null) {
+      return;
+    }
     if (
       auctionNow.bidDeadlineTs &&
       auctionNow.bidDeadlineTs < Date.now()
@@ -735,14 +709,8 @@ export default function RoomPage() {
       alert("This player has already timed out.");
       return;
     }
-    if (auctionNow.currentBidLakhs != null) {
-      // Someone already started bidding.
-      return;
-    }
     if (isEffectivelySatOut(localTeamId, auctionNow, teams)) {
-      alert(
-        "You have sat out on this player or are out of purse."
-      );
+      alert("You have sat out on this player or are out of purse.");
       return;
     }
 
@@ -760,9 +728,7 @@ export default function RoomPage() {
     });
     await update(
       ref(db, `rooms/${dbRoomId}/players/${playerId}`),
-      {
-        status: "in_auction"
-      }
+      { status: "in_auction" }
     );
     setCustomBidInput("");
   };
@@ -793,9 +759,7 @@ export default function RoomPage() {
     const serverAuction = (snap.val() as AuctionState) || {};
 
     if (serverAuction.currentBidTeamId === localTeamId) {
-      alert(
-        "You already hold the highest bid for this player."
-      );
+      alert("You already hold the highest bid for this player.");
       return;
     }
 
@@ -811,9 +775,7 @@ export default function RoomPage() {
       return;
     }
     if (isEffectivelySatOut(localTeamId, serverAuction, teams)) {
-      alert(
-        "You have sat out on this player or are out of purse."
-      );
+      alert("You have sat out on this player or are out of purse.");
       return;
     }
 
@@ -867,9 +829,7 @@ export default function RoomPage() {
     const customLakhs = showInCrores ? n * 100 : n;
 
     if (customLakhs % 50 !== 0) {
-      alert(
-        "Custom bid must be a multiple of 0.5 Cr (50 Lakhs)."
-      );
+      alert("Custom bid must be a multiple of 0.5 Cr (50 Lakhs).");
       return;
     }
 
@@ -878,9 +838,7 @@ export default function RoomPage() {
     const serverAuction = (snap.val() as AuctionState) || {};
 
     if (serverAuction.currentBidTeamId === localTeamId) {
-      alert(
-        "You already hold the highest bid for this player."
-      );
+      alert("You already hold the highest bid for this player.");
       return;
     }
 
@@ -896,9 +854,7 @@ export default function RoomPage() {
       return;
     }
     if (isEffectivelySatOut(localTeamId, serverAuction, teams)) {
-      alert(
-        "You have sat out on this player or are out of purse."
-      );
+      alert("You have sat out on this player or are out of purse.");
       return;
     }
 
@@ -923,7 +879,7 @@ export default function RoomPage() {
     setCustomBidInput("");
   };
 
-  // ---------- Sit out / timeout / other logic ----------
+  // Sit out: one-way per player; auto-sell when only one active team remains and holds highest bid
   const handleSitOut = async () => {
     if (!dbRoomId || !room?.auction) return;
     if (!localTeamId) {
@@ -957,12 +913,8 @@ export default function RoomPage() {
     };
 
     const teamIds = Object.keys(teams);
-    const activeTeamIds = teamIds.filter((id) =>
-      !isEffectivelySatOut(
-        id,
-        { ...auctionNow, satOutTeams: newSatOut },
-        teams
-      )
+    const activeTeamIds = teamIds.filter(
+      (id) => !isEffectivelySatOut(id, { ...auctionNow, satOutTeams: newSatOut }, teams)
     );
 
     // more than one active team left -> just mark sat out
@@ -978,18 +930,16 @@ export default function RoomPage() {
       return;
     }
 
-    // everyone effectively sat out => sold to highest bidder or unsold
+    // everyone is effectively sat out => sold to highest bidder or unsold
     const playersRef = ref(db, `rooms/${dbRoomId}/players`);
     const playersSnap = await get(playersRef);
-    const pl =
-      (playersSnap.val() as Record<string, Player>) || {};
+    const pl = (playersSnap.val() as Record<string, Player>) || {};
     const player = pl[playerId];
     if (!player) return;
 
     const teamsRef = ref(db, `rooms/${dbRoomId}/teams`);
     const teamsSnap = await get(teamsRef);
-    const currentTeams =
-      (teamsSnap.val() as Record<string, Team>) || {};
+    const currentTeams = (teamsSnap.val() as Record<string, Team>) || {};
     const updates: Record<string, any> = {};
     const playerPath = `rooms/${dbRoomId}/players/${playerId}`;
     const auctionPath = `rooms/${dbRoomId}/auction`;
@@ -1027,10 +977,7 @@ export default function RoomPage() {
     } else {
       updates[`${playerPath}/status`] = "unsold";
       resultMessage = `${player.name} went unsold`;
-      void appendLog(
-        dbRoomId,
-        `UNSOLD (everyone sat out): ${player.name}`
-      );
+      void appendLog(dbRoomId, `UNSOLD (everyone sat out): ${player.name}`);
     }
 
     const now = Date.now();
@@ -1063,46 +1010,43 @@ export default function RoomPage() {
       alert("Not enough time bank left (need at least 15s).");
       return;
     }
-    const currentDeadline =
-      room.auction.bidDeadlineTs ?? Date.now();
+    const currentDeadline = room.auction.bidDeadlineTs ?? Date.now();
     const newDeadline = currentDeadline + 15000;
     const updates: Record<string, any> = {};
-    updates[
-      `rooms/${dbRoomId}/auction/bidDeadlineTs`
-    ] = newDeadline;
+    updates[`rooms/${dbRoomId}/auction/bidDeadlineTs`] = newDeadline;
     updates[
       `rooms/${dbRoomId}/teams/${localTeamId}/timeBankSeconds`
     ] = remaining - 15;
     await update(ref(db), updates);
   };
 
-  // ---------- Countdown display ----------
+  // Countdown display (purely UI)
   useEffect(() => {
     const bidDeadlineTs = room?.auction?.bidDeadlineTs ?? null;
     if (!bidDeadlineTs) {
       setRemainingSeconds(null);
       return;
     }
-
     const updateRemaining = () => {
       const now = Date.now();
       const diffMs = bidDeadlineTs - now;
       const diffSec = Math.floor(diffMs / 1000);
       setRemainingSeconds(diffSec > 0 ? diffSec : 0);
     };
-
     updateRemaining();
     const id = setInterval(updateRemaining, 250);
     return () => clearInterval(id);
   }, [room?.auction?.bidDeadlineTs]);
 
-  // ---------- Robust timeout finalization ----------
+  // Robust timeout finalization
   useEffect(() => {
     const doFinalize = async () => {
       if (!dbRoomId) return;
+
       const auctionRef = ref(db, `rooms/${dbRoomId}/auction`);
       const auctionSnap = await get(auctionRef);
       const auctionNow = (auctionSnap.val() as AuctionState) || {};
+
       if (auctionNow.status !== "running") return;
       if (!auctionNow.bidDeadlineTs) return;
       if (Date.now() < auctionNow.bidDeadlineTs) return;
@@ -1120,18 +1064,17 @@ export default function RoomPage() {
         get(playersRef),
         get(teamsRef)
       ]);
-      const players =
-        (playersSnap.val() as Record<string, Player>) || {};
-      const teams =
-        (teamsSnap.val() as Record<string, Team>) || {};
+
+      const players = (playersSnap.val() as Record<string, Player>) || {};
+      const teams = (teamsSnap.val() as Record<string, Team>) || {};
       const player = players[playerId];
       if (!player) return;
 
       const updates: Record<string, any> = {};
       const playerPath = `rooms/${dbRoomId}/players/${playerId}`;
       const auctionPath = `rooms/${dbRoomId}/auction`;
-      const { currentBidTeamId, currentBidLakhs } = auctionNow;
 
+      const { currentBidTeamId, currentBidLakhs } = auctionNow;
       let resultMessage = "";
 
       if (currentBidTeamId && currentBidLakhs != null) {
@@ -1157,17 +1100,14 @@ export default function RoomPage() {
         resultMessage = `${player.name} sold to ${team.name} for ${priceCr} Cr`;
         void appendLog(
           dbRoomId,
-          `SOLD (timer): ${player.name} to ${
+          `SOLD: ${player.name} to ${
             team.name
           } for ${currentBidLakhs.toFixed(0)} L`
         );
       } else {
         updates[`${playerPath}/status`] = "unsold";
         resultMessage = `${player.name} went unsold`;
-        void appendLog(
-          dbRoomId,
-          `UNSOLD (timer): ${player.name}`
-        );
+        void appendLog(dbRoomId, `UNSOLD: ${player.name}`);
       }
 
       const now = Date.now();
@@ -1183,25 +1123,19 @@ export default function RoomPage() {
       await update(ref(db), updates);
     };
 
-    if (
-      room?.auction?.status === "running" &&
-      room.auction.bidDeadlineTs
-    ) {
+    if (room?.auction?.status === "running" && room.auction.bidDeadlineTs) {
       const id = setInterval(() => {
         void doFinalize();
       }, 300);
       return () => clearInterval(id);
     }
-  }, [
-    dbRoomId,
-    room?.auction?.status,
-    room?.auction?.bidDeadlineTs
-  ]);
+  }, [dbRoomId, room?.auction?.status, room?.auction?.bidDeadlineTs]);
 
-  // ---------- After 5s result banner, auto-advance ----------
+  // After 5s result banner, automatically advance to next player; if auction done, redirect to team setup
   useEffect(() => {
     const runAdvance = async () => {
       if (!dbRoomId) return;
+
       const auctionRef = ref(db, `rooms/${dbRoomId}/auction`);
       const [auctionSnap, teamsSnap] = await Promise.all([
         get(auctionRef),
@@ -1211,21 +1145,19 @@ export default function RoomPage() {
       if (auctionNow.status !== "showing_result") return;
 
       const sets = auctionNow.sets || [];
-      const {
-        nextSetIndex,
-        nextPlayerIndex,
-        nextStatus
-      } = advanceToNextPlayerFields(auctionNow);
-      const teamsNow =
-        (teamsSnap.val() as Record<string, Team>) || {};
+      const { nextSetIndex, nextPlayerIndex, nextStatus } =
+        advanceToNextPlayerFields(auctionNow);
+
+      const teamsNow = (teamsSnap.val() as Record<string, Team>) || {};
       const finalStatus = computeFinalAuctionStatus(
         nextStatus,
         teamsNow
       );
+
       let nextDeadline: number | null = null;
       if (finalStatus !== "finished") {
-        const nextSet = sets[nextSetIndex];
-        if (nextSet && nextSet[nextPlayerIndex]) {
+        const nextSet = sets[nextSetIndex] || [];
+        if (nextSet[nextPlayerIndex]) {
           nextDeadline = Date.now() + 30000;
         }
       }
@@ -1245,11 +1177,10 @@ export default function RoomPage() {
 
     const auction = room?.auction;
     if (!auction || auction.status !== "showing_result") return;
+
     const until = auction.resultUntilTs;
-    if (!until) {
-      void runAdvance();
-      return;
-    }
+    if (!until) return;
+
     const delay = until - Date.now();
     if (delay <= 0) {
       void runAdvance();
@@ -1259,21 +1190,16 @@ export default function RoomPage() {
       void runAdvance();
     }, delay);
     return () => clearTimeout(id);
-  }, [
-    room?.auction?.status,
-    room?.auction?.resultUntilTs,
-    dbRoomId,
-    room?.teams
-  ]);
+  }, [room?.auction?.status, room?.auction?.resultUntilTs, dbRoomId, room?.teams]);
 
-  // ---------- Redirect to team setup when auction finishes ----------
+  // Redirect everyone to team setup when auction finishes
   useEffect(() => {
     if (room?.auction?.status === "finished") {
       router.push(`/room/${displayRoomId}/team-setup`);
     }
   }, [room?.auction?.status, displayRoomId, router]);
 
-  // ---------- Create team ----------
+  // Create team
   const handleCreateTeam = async () => {
     if (!dbRoomId) return;
     const name = teamNameInput.trim();
@@ -1293,16 +1219,12 @@ export default function RoomPage() {
 
       const teamsRef = ref(db, `rooms/${dbRoomId}/teams`);
       const snap = await get(teamsRef);
-      const existingTeams =
-        (snap.val() as Record<string, Team>) || {};
+      const existingTeams: Record<string, Team> = (snap.val() as any) || {};
       const nameTaken = Object.values(existingTeams).some(
-        (t) =>
-          t.name.toLowerCase() === name.toLowerCase()
+        (t) => t.name.toLowerCase() === name.toLowerCase()
       );
       if (nameTaken) {
-        setTeamModalError(
-          "This team name is already taken in this room."
-        );
+        setTeamModalError("This team name is already taken in this room.");
         setCreatingTeam(false);
         return;
       }
@@ -1312,8 +1234,8 @@ export default function RoomPage() {
       );
       const color =
         TEAM_COLORS.find((c) => !usedColors.has(c)) || "#FFFFFF";
-
       const now = Date.now();
+
       const newTeamRef = push(teamsRef);
       await set(newTeamRef, {
         name,
@@ -1337,7 +1259,7 @@ export default function RoomPage() {
           newTeamRef.key!
         );
       }
-      setLocalTeamId(newTeamRef.key!);
+      setLocalTeamId(newTeamRef.key);
       setShowTeamModal(false);
     } catch (err) {
       console.error(err);
@@ -1347,11 +1269,12 @@ export default function RoomPage() {
     }
   };
 
-  // ---------- Export CSV (admin) ----------
+  // Export CSV (admin)
   const handleExportCsv = () => {
     if (!room) return;
     const tms = room.teams || {};
     const pls = room.players || {};
+
     const teamRows: string[][] = [
       ["teamId", "name", "color", "purseRemainingLakhs", "timeBankSeconds"]
     ];
@@ -1378,17 +1301,11 @@ export default function RoomPage() {
       ]);
     });
 
-    downloadTextFile(
-      `teams-${displayRoomId}.csv`,
-      toCsv(teamRows)
-    );
-    downloadTextFile(
-      `players-${displayRoomId}.csv`,
-      toCsv(playerRows)
-    );
+    downloadTextFile(`teams_${displayRoomId}.csv`, toCsv(teamRows));
+    downloadTextFile(`players_${displayRoomId}.csv`, toCsv(playerRows));
   };
 
-  // ---------- Default selections ----------
+  // Default selections
   useEffect(() => {
     const tms = room?.teams || {};
     if (!selectedTeamId) {
@@ -1399,18 +1316,11 @@ export default function RoomPage() {
         if (firstId) setSelectedTeamId(firstId);
       }
     }
-    if (room?.auction && selectedSetIndex == null) {
+    if (room?.auction && selectedSetIndex === null) {
       setSelectedSetIndex(room.auction.currentSetIndex ?? 0);
     }
-  }, [
-    room?.teams,
-    room?.auction,
-    localTeamId,
-    selectedTeamId,
-    selectedSetIndex
-  ]);
+  }, [room?.teams, room?.auction, localTeamId, selectedTeamId, selectedSetIndex]);
 
-  // ---------- Guards ----------
   if (loadingRoom) {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center">
@@ -1423,12 +1333,8 @@ export default function RoomPage() {
     return (
       <main className="min-h-screen bg-black text-white flex items-center justify-center p-4">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">
-            Room not found
-          </h1>
-          <p className="mb-4">
-            Check the URL or room ID.
-          </p>
+          <h1 className="text-2xl font-bold mb-2">Room not found</h1>
+          <p className="mb-4">Check the URL or room ID.</p>
           <button
             onClick={() => router.push("/")}
             className="px-4 py-2 bg-blue-600 rounded"
@@ -1442,7 +1348,7 @@ export default function RoomPage() {
 
   const teams = room.teams || {};
   const players = room.players || {};
-  const cfgDisplay: RoomConfig = editingConfig || room.config || {};
+  const cfgDisplay = editingConfig || room.config || {};
   const auction = room.auction || {};
   const sets = auction.sets || [];
   const currentSetIndex = auction.currentSetIndex ?? 0;
@@ -1452,9 +1358,7 @@ export default function RoomPage() {
   const isAdmin = !!authUid && room.adminUid === authUid;
   const adminTeam =
     room.adminUid && Object.keys(teams).length > 0
-      ? Object.values(teams).find(
-          (t) => t.ownerUid === room.adminUid
-        )
+      ? Object.values(teams).find((t) => t.ownerUid === room.adminUid)
       : undefined;
 
   let currentAuctionPlayer: ScoredPlayer | null = null;
@@ -1465,55 +1369,46 @@ export default function RoomPage() {
     sets[currentSetIndex] &&
     sets[currentSetIndex][currentPlayerIndex]
   ) {
-    const pid =
-      sets[currentSetIndex][currentPlayerIndex];
+    const pid = sets[currentSetIndex][currentPlayerIndex];
     currentPlayerId = pid;
     currentAuctionPlayer =
-      scoredPlayers.find((p) => p.id === pid) ?? null;
+      scoredPlayers.find((p) => p.id === pid) || null;
     const roomPlayer = players[pid];
-    currentPlayerBasePriceLakhs =
-      roomPlayer?.basePriceLakhs ?? 0;
+    currentPlayerBasePriceLakhs = roomPlayer?.basePriceLakhs ?? 0;
   }
 
   const playersLeftInSet =
     sets[currentSetIndex]?.length != null
-      ? sets[currentSetIndex].length -
-        currentPlayerIndex -
-        1
+      ? sets[currentSetIndex].length - (currentPlayerIndex + 1)
       : 0;
 
   const selectedTeam =
-    selectedTeamId && teams[selectedTeamId]
-      ? teams[selectedTeamId]
-      : undefined;
+    (selectedTeamId && teams[selectedTeamId]) || undefined;
 
   const currentBidLakhs =
     auction.currentBidLakhs ?? currentPlayerBasePriceLakhs;
+
   const isMyTeamHighestBidder =
-    !!localTeamId &&
-    auction.currentBidTeamId === localTeamId;
+    !!localTeamId && auction.currentBidTeamId === localTeamId;
 
   const currentSetPlayerIds = sets[currentSetIndex] || [];
-  const currentSetPlayersDetailed = currentSetPlayerIds.map(
-    (pid) => {
-      const sp =
-        scoredPlayers.find((p) => p.id === pid) ?? null;
-      const rp = players[pid];
-      const soldTeam =
-        rp?.soldToTeamId && teams[rp.soldToTeamId]
-          ? teams[rp.soldToTeamId]
-          : undefined;
-      return {
-        id: pid,
-        name: sp?.name ?? rp?.name ?? pid,
-        battingScore: sp?.battingScore,
-        bowlingScore: sp?.bowlingScore,
-        allRounderScore: sp?.allRounderScore,
-        status: rp?.status ?? "not_started",
-        teamColor: soldTeam?.color
-      };
-    }
-  );
+  const currentSetPlayersDetailed = currentSetPlayerIds.map((pid) => {
+    const sp = scoredPlayers.find((p) => p.id === pid);
+    const rp = players[pid];
+    const soldTeam =
+      rp?.soldToTeamId && teams[rp.soldToTeamId]
+        ? teams[rp.soldToTeamId]
+        : undefined;
+    return {
+      id: pid,
+      name: sp?.name ?? rp?.name ?? pid,
+      battingScore: sp?.battingScore,
+      bowlingScore: sp?.bowlingScore,
+      allRounderScore: sp?.allRounderScore,
+      status: rp?.status ?? "not_started",
+      teamColor: soldTeam?.color
+    };
+  });
 
   const allSetsList = sets.map((s, idx) => ({
     index: idx,
@@ -1524,17 +1419,14 @@ export default function RoomPage() {
   const fraction =
     remainingSeconds == null
       ? 0
-      : Math.max(
-          0,
-          Math.min(1, remainingSeconds / totalSeconds)
-        );
+      : Math.max(0, Math.min(1, remainingSeconds / totalSeconds));
   const sweepDeg = fraction * 360;
   const timerRingStyle: CSSProperties = {
     background: `conic-gradient(${
       remainingSeconds != null && remainingSeconds <= 5
         ? "#f97373"
         : "#22C55E"
-    } ${sweepDeg}deg, #111827 ${sweepDeg}deg)`
+    } ${sweepDeg}deg, #1f2937 ${sweepDeg}deg)`
   };
 
   const allSoldPlayers = Object.entries(players).filter(
@@ -1547,24 +1439,30 @@ export default function RoomPage() {
   );
 
   const myTeamOutOfPurse = teamOutOfPurse(myTeam);
+
   const canBid =
     auction.status === "running" &&
     !!currentPlayerId &&
     !isMyTeamHighestBidder &&
     !myTeamOutOfPurse;
+
   const canUseTimeBank =
     auction.status === "running" &&
     !!currentPlayerId &&
     !!myTeam &&
     safeNum(myTeam.timeBankSeconds ?? 0) >= 15;
+
   const canSitOut =
     auction.status === "running" && !!currentPlayerId;
+
   const isSatOutForCurrentPlayer =
-    !!auction.satOutTeams?.[localTeamId ?? ""];
+    !!(auction.satOutTeams &&
+       localTeamId &&
+       auction.satOutTeams[localTeamId]);
 
   const handleCopyRoomCode = async () => {
     try {
-      if (typeof navigator !== "undefined") {
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
         await navigator.clipboard.writeText(displayRoomId);
         alert("Room code copied to clipboard");
       } else {
@@ -1584,10 +1482,8 @@ export default function RoomPage() {
             Idiots Premier League Auction
           </h1>
           <p className="text-sm text-gray-400 flex items-center gap-2 mt-1">
-            Room code{" "}
-            <span className="font-mono text-base">
-              {displayRoomId}
-            </span>
+            Room code:
+            <span className="font-mono text-base">{displayRoomId}</span>
             <button
               onClick={handleCopyRoomCode}
               className="px-2 py-0.5 text-xs rounded bg-gray-800 border border-gray-600"
@@ -1596,14 +1492,11 @@ export default function RoomPage() {
             </button>
           </p>
           <p className="text-sm text-gray-400">
-            Season:{" "}
-            {cfgDisplay.season ??
-              room.config?.season ??
-              "unknown"}
+            Season: {cfgDisplay.season ?? room.config?.season ?? "unknown"}
           </p>
           {myTeam && (
             <p className="text-sm mt-1">
-              You are{" "}
+              You are:{" "}
               <span
                 className="font-semibold px-2 py-0.5 rounded"
                 style={{ backgroundColor: myTeam.color }}
@@ -1619,7 +1512,7 @@ export default function RoomPage() {
           )}
           {!isAdmin && adminTeam && (
             <p className="text-xs text-gray-400 mt-1">
-              Auction controlled by {adminTeam.name}
+              Auction controlled by: {adminTeam.name}
             </p>
           )}
           <div className="flex gap-2 mt-2 text-xs">
@@ -1633,9 +1526,7 @@ export default function RoomPage() {
             </button>
             <button
               onClick={() => setTab("results")}
-              disabled={
-                (auction.status ?? "not_started") !== "finished"
-              }
+              disabled={(auction.status ?? "not_started") !== "finished"}
               className={`px-2 py-1 rounded ${
                 tab === "results" ? "bg-blue-600" : "bg-gray-800"
               } disabled:bg-gray-700`}
@@ -1644,16 +1535,13 @@ export default function RoomPage() {
             </button>
           </div>
         </div>
-
         <div className="flex flex-col items-end gap-2 text-sm">
           <div className="flex items-center gap-2">
             <button
-              onClick={() =>
-                setShowInCrores((prev) => !prev)
-              }
+              onClick={() => setShowInCrores((prev) => !prev)}
               className="px-3 py-1 rounded bg-gray-800 border border-gray-600 text-xs"
             >
-              View in {showInCrores ? "Crores" : "Lakhs"}
+              View in: {showInCrores ? "Crores" : "Lakhs"}
             </button>
             <button
               onClick={handleExportCsv}
@@ -1663,7 +1551,7 @@ export default function RoomPage() {
               Export CSV (admin)
             </button>
           </div>
-          <div className="text-right text-xs text-gray-400">
+          <div className="text-right">
             <p>
               Status:{" "}
               <span className="font-semibold capitalize">
@@ -1672,264 +1560,178 @@ export default function RoomPage() {
             </p>
             {room.createdAt && (
               <p className="text-gray-400 text-xs">
-                Created{" "}
-                {new Date(
-                  room.createdAt
-                ).toLocaleString()}
+                Created: {new Date(room.createdAt).toLocaleString()}
               </p>
             )}
           </div>
         </div>
       </header>
 
-      {/* Team creation modal */}
-      {showTeamModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded p-4 w-full max-w-sm">
-            <h2 className="text-lg font-semibold mb-2">
-              Create your team
-            </h2>
-            <p className="text-xs text-gray-400 mb-2">
-              This device will be linked to your team.
-              Choose a unique team name for this room.
-            </p>
-            <input
-              type="text"
-              value={teamNameInput}
-              onChange={(e) =>
-                setTeamNameInput(e.target.value)
-              }
-              className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 mb-2"
-              placeholder="Team name"
-            />
-            {teamModalError && (
-              <p className="text-xs text-red-400 mb-2">
-                {teamModalError}
-              </p>
-            )}
-            <div className="flex justify-end gap-2 text-xs">
-              <button
-                onClick={() => {
-                  setShowTeamModal(false);
-                  if (!localTeamId) {
-                    setShowTeamModal(true);
-                  }
-                }}
-                className="px-3 py-1 rounded bg-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateTeam}
-                disabled={creatingTeam}
-                className="px-3 py-1 rounded bg-emerald-600 disabled:bg-gray-700"
-              >
-                {creatingTeam ? "Creating..." : "Create"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MAIN CONTENT */}
+      {/* TAB: AUCTION */}
       {tab === "auction" && (
-        <section className="grid md:grid-cols-2 gap-4">
-          {/* Left: Config or auction */}
-          <div className="space-y-4">
-            {view === "config" && (
-              <section className="bg-gray-900 rounded p-4 flex flex-col gap-4">
-                <div>
-                  <h2 className="text-lg font-semibold mb-2">
-                    Step 1: Conversion factors
-                  </h2>
-                  <p className="text-xs text-gray-400 mb-3">
-                    Only the room admin should change these
-                    values. Then click "Next" to prepare the auction.
-                  </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                    <div>
-                      <label className="block text-xs mb-1">
-                        Season
-                      </label>
-                      <input
-                        type="text"
-                        value={
-                          cfgDisplay.season ??
-                          room.config?.season ??
-                          ""
-                        }
-                        onChange={(e) =>
-                          handleConfigChange(
-                            "season",
-                            e.target.value
-                          )
-                        }
-                        disabled={!isAdmin}
-                        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs mb-1">
-                        CF1 (Wickets)
-                      </label>
-                      <input
-                        type="number"
-                        value={cfgDisplay.CF1 ?? ""}
-                        onChange={(e) =>
-                          handleConfigChange(
-                            "CF1",
-                            e.target.value
-                          )
-                        }
-                        disabled={!isAdmin}
-                        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs mb-1">
-                        CF2 (Bowling)
-                      </label>
-                      <input
-                        type="number"
-                        value={cfgDisplay.CF2 ?? ""}
-                        onChange={(e) =>
-                          handleConfigChange(
-                            "CF2",
-                            e.target.value
-                          )
-                        }
-                        disabled={!isAdmin}
-                        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs mb-1">
-                        CF3 (AR)
-                      </label>
-                      <input
-                        type="number"
-                        value={cfgDisplay.CF3 ?? ""}
-                        onChange={(e) =>
-                          handleConfigChange(
-                            "CF3",
-                            e.target.value
-                          )
-                        }
-                        disabled={!isAdmin}
-                        className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 items-center">
-                    <button
-                      onClick={handleSaveConfig}
-                      disabled={savingConfig || !isAdmin}
-                      className="px-4 py-2 bg-blue-600 rounded disabled:bg-gray-600 text-sm"
-                    >
-                      {savingConfig
-                        ? "Saving..."
-                        : "Save config"}
-                    </button>
-                    <button
-                      onClick={handleConfigNext}
+        <>
+          {/* STEP 1: Config */}
+          {view === "config" && (
+            <section className="bg-gray-900 rounded p-4 flex flex-col gap-4">
+              <div>
+                <h2 className="text-lg font-semibold mb-2">
+                  Step 1 – Conversion Factors
+                </h2>
+                <p className="text-xs text-gray-400 mb-3">
+                  Only the room admin should change these values. Then click
+                  &quot;Next&quot; to prepare the auction.
+                </p>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                  <div>
+                    <label className="block text-xs mb-1">Season</label>
+                    <input
+                      type="text"
+                      value={cfgDisplay.season ?? ""}
+                      onChange={(e) =>
+                        handleConfigChange("season", e.target.value)
+                      }
                       disabled={!isAdmin}
-                      className="px-4 py-2 bg-purple-600 rounded text-sm disabled:bg-gray-700"
-                    >
-                      Next: prepare auction
-                    </button>
-                    {!isAdmin && (
-                      <p className="text-xs text-gray-400">
-                        Only the admin (first UID to create a team)
-                        can change factors and generate sets.
-                      </p>
-                    )}
+                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">
+                      CF1 (Wickets)
+                    </label>
+                    <input
+                      type="number"
+                      value={cfgDisplay.CF1 ?? ""}
+                      onChange={(e) =>
+                        handleConfigChange("CF1", e.target.value)
+                      }
+                      disabled={!isAdmin}
+                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">
+                      CF2 (Bowling)
+                    </label>
+                    <input
+                      type="number"
+                      value={cfgDisplay.CF2 ?? ""}
+                      onChange={(e) =>
+                        handleConfigChange("CF2", e.target.value)
+                      }
+                      disabled={!isAdmin}
+                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs mb-1">CF3 (AR)</label>
+                    <input
+                      type="number"
+                      value={cfgDisplay.CF3 ?? ""}
+                      onChange={(e) =>
+                        handleConfigChange("CF3", e.target.value)
+                      }
+                      disabled={!isAdmin}
+                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
+                    />
                   </div>
                 </div>
-
-                <div>
-                  <h2 className="text-lg font-semibold mb-3">
-                    Ranking preview per room
-                  </h2>
-                  {loadingSeason ? (
-                    <p className="text-sm text-gray-400">
-                      Loading season players...
+                <div className="mt-3 flex flex-wrap gap-2 items-center">
+                  <button
+                    onClick={handleSaveConfig}
+                    disabled={savingConfig || !isAdmin}
+                    className="px-4 py-2 bg-blue-600 rounded disabled:bg-gray-600 text-sm"
+                  >
+                    {savingConfig ? "Saving..." : "Save config"}
+                  </button>
+                  <button
+                    onClick={handleConfigNext}
+                    disabled={!isAdmin}
+                    className="px-4 py-2 bg-purple-600 rounded text-sm disabled:bg-gray-700"
+                  >
+                    Next: prepare auction
+                  </button>
+                  {!isAdmin && (
+                    <p className="text-xs text-gray-400">
+                      Only the admin (first UID to create a team) can change
+                      factors and generate sets.
                     </p>
-                  ) : scoredPlayers.length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      No players loaded for this season. Import
-                      `seasons/{cfgDisplay.season}/players`.
-                    </p>
-                  ) : (
-                    <div className="grid md:grid-cols-3 gap-3 text-xs">
-                      <div>
-                        <h3 className="font-semibold mb-1">
-                          Top Batting Score
-                        </h3>
-                        <ol className="list-decimal list-inside space-y-1">
-                          {topBatters.map((p) => (
-                            <li key={p.id}>
-                              {p.name}{" "}
-                              <span className="text-gray-400">
-                                ({p.battingScore.toFixed(2)})
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold mb-1">
-                          Top Bowling Score
-                        </h3>
-                        <ol className="list-decimal list-inside space-y-1">
-                          {topBowlers.map((p) => (
-                            <li key={p.id}>
-                              {p.name}{" "}
-                              <span className="text-gray-400">
-                                ({p.bowlingScore.toFixed(2)})
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                      <div>
-                        <h3 className="font-semibold mb-1">
-                          Top All-Rounder Score
-                        </h3>
-                        <ol className="list-decimal list-inside space-y-1">
-                          {topAllRounders.map((p) => (
-                            <li key={p.id}>
-                              {p.name}{" "}
-                              <span className="text-gray-400">
-                                ({p.allRounderScore.toFixed(2)})
-                              </span>
-                            </li>
-                          ))}
-                        </ol>
-                      </div>
-                    </div>
                   )}
                 </div>
-              </section>
-            )}
+              </div>
 
-            {view === "auction" && (
+              <div>
+                <h2 className="text-lg font-semibold mb-3">
+                  Ranking preview (per room)
+                </h2>
+                {loadingSeason ? (
+                  <p className="text-sm text-gray-400">
+                    Loading season players...
+                  </p>
+                ) : scoredPlayers.length === 0 ? (
+                  <p className="text-sm text-gray-400">
+                    No players loaded for this season. Import
+                    seasons/{cfgDisplay.season}/players.
+                  </p>
+                ) : (
+                  <div className="grid md:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <h3 className="font-semibold mb-1">
+                        Top Batting Score
+                      </h3>
+                      <ol className="list-decimal list-inside space-y-1">
+                        {topBatters.map((p) => (
+                          <li key={p.id}>
+                            {p.name} – {p.battingScore.toFixed(2)}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1">
+                        Top Bowling Score
+                      </h3>
+                      <ol className="list-decimal list-inside space-y-1">
+                        {topBowlers.map((p) => (
+                          <li key={p.id}>
+                            {p.name} – {p.bowlingScore.toFixed(2)}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold mb-1">
+                        Top All-Rounder Score
+                      </h3>
+                      <ol className="list-decimal list-inside space-y-1">
+                        {topAllRounders.map((p) => (
+                          <li key={p.id}>
+                            {p.name} – {p.allRounderScore.toFixed(2)}
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
+          {/* STEP 2: Auction */}
+          {view === "auction" && (
+            <>
               <section className="bg-gray-900 rounded p-4 flex flex-col gap-3">
                 <div className="flex items-center justify-between text-sm mb-1">
                   <div>
                     <p>
-                      Set{" "}
+                      Set:{" "}
                       <span className="font-semibold">
-                        {sets.length === 0
-                          ? "-"
-                          : currentSetIndex + 1}{" "}
-                        / {sets.length || "-"}
+                        {sets.length === 0 ? "-" : currentSetIndex + 1} /{" "}
+                        {sets.length || "-"}
                       </span>
                     </p>
                     <p className="text-gray-400">
                       Players left in this set:{" "}
-                      {playersLeftInSet < 0
-                        ? 0
-                        : playersLeftInSet}
+                      {playersLeftInSet < 0 ? 0 : playersLeftInSet}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1968,8 +1770,8 @@ export default function RoomPage() {
                     </h2>
                     {!currentAuctionPlayer ? (
                       <p className="text-sm text-gray-400">
-                        No current player. Admin must generate sets
-                        and start auction.
+                        No current player. Admin must generate sets and
+                        start auction.
                       </p>
                     ) : (
                       <>
@@ -1977,7 +1779,7 @@ export default function RoomPage() {
                           {currentAuctionPlayer.name}
                         </p>
                         <p className="text-base mb-3">
-                          Base price{" "}
+                          Base price:{" "}
                           <span className="font-bold text-xl">
                             {formatAmount(
                               currentPlayerBasePriceLakhs,
@@ -1991,37 +1793,19 @@ export default function RoomPage() {
                               Batting stats
                             </p>
                             <p>
-                              Runs{" "}
-                              {
-                                currentAuctionPlayer.batting
-                                  .runs
-                              }
+                              Runs:{" "}
+                              {currentAuctionPlayer.batting.runs}
                             </p>
                             <p>
-                              Avg{" "}
-                              {
-                                currentAuctionPlayer.batting
-                                  .avg
-                              }
+                              Avg: {currentAuctionPlayer.batting.avg}
                             </p>
                             <p>
-                              SR{" "}
-                              {
-                                currentAuctionPlayer.batting
-                                  .sr
-                              }
+                              SR: {currentAuctionPlayer.batting.sr}
                             </p>
                             <p>
-                              4s/6s{" "}
-                              {
-                                currentAuctionPlayer.batting
-                                  .fours
-                              }
-                              /
-                              {
-                                currentAuctionPlayer.batting
-                                  .sixes
-                              }
+                              4s/6s:{" "}
+                              {currentAuctionPlayer.batting.fours}/
+                              {currentAuctionPlayer.batting.sixes}
                             </p>
                           </div>
                           <div>
@@ -2029,32 +1813,17 @@ export default function RoomPage() {
                               Bowling stats
                             </p>
                             <p>
-                              Wkts{" "}
-                              {
-                                currentAuctionPlayer.bowling
-                                  .wickets
-                              }
+                              Wkts:{" "}
+                              {currentAuctionPlayer.bowling.wickets}
                             </p>
                             <p>
-                              Avg{" "}
-                              {
-                                currentAuctionPlayer.bowling
-                                  .avg
-                              }
+                              Avg: {currentAuctionPlayer.bowling.avg}
                             </p>
                             <p>
-                              Econ{" "}
-                              {
-                                currentAuctionPlayer.bowling
-                                  .econ
-                              }
+                              Econ: {currentAuctionPlayer.bowling.econ}
                             </p>
                             <p>
-                              SR{" "}
-                              {
-                                currentAuctionPlayer.bowling
-                                  .sr
-                              }
+                              SR: {currentAuctionPlayer.bowling.sr}
                             </p>
                           </div>
                         </div>
@@ -2094,7 +1863,7 @@ export default function RoomPage() {
                     )}
                   </div>
 
-                  {/* Top-middle: bidding / sit-out / time bank */}
+                  {/* Top-middle: bidding + sit out + time bank */}
                   <div className="bg-black/40 rounded p-3 flex flex-col justify-between relative">
                     {auction.status === "showing_result" &&
                       auction.resultMessage && (
@@ -2104,11 +1873,12 @@ export default function RoomPage() {
                               {auction.resultMessage}
                             </p>
                             <p className="text-xs text-gray-400 mt-1">
-                              Next player will start in a moment...
+                              Next player will start in a moment…
                             </p>
                           </div>
                         </div>
                       )}
+
                     <div>
                       <h2 className="text-lg font-semibold mb-3">
                         Bidding
@@ -2118,178 +1888,207 @@ export default function RoomPage() {
                           Waiting for a current player.
                         </p>
                       ) : (
-                        <div className="flex items-center gap-4 mb-4">
-                          <div className="relative w-40 h-40">
-                            <div
-                              className="w-40 h-40 rounded-full flex items-center justify-center"
-                              style={timerRingStyle}
-                            >
-                              <button
-                                className="w-32 h-32 rounded-full bg-blue-600 flex flex-col items-center justify-center text-sm md:text-base font-bold shadow-lg disabled:bg-gray-700 disabled:text-gray-300"
-                                disabled={
-                                  auction.status !== "running" ||
-                                  !currentPlayerId ||
-                                  isMyTeamHighestBidder ||
-                                  isSatOutForCurrentPlayer ||
-                                  myTeamOutOfPurse
-                                }
-                                onClick={() => {
-                                  if (
-                                    !currentPlayerId ||
-                                    !currentAuctionPlayer
-                                  )
-                                    return;
-                                  if (
-                                    auction.currentBidLakhs == null
-                                  ) {
-                                    void handleStartBidding(
-                                      currentPlayerBasePriceLakhs,
-                                      currentPlayerId
-                                    );
-                                  } else {
-                                    void handleRaiseBid(
-                                      50,
-                                      currentPlayerBasePriceLakhs,
-                                      currentPlayerId
-                                    );
-                                  }
-                                }}
+                        <>
+                          <div className="flex items-center gap-4 mb-4">
+                            <div className="relative w-40 h-40">
+                              <div
+                                className="w-40 h-40 rounded-full flex items-center justify-center"
+                                style={timerRingStyle}
                               >
-                                <span className="text-[11px] uppercase">
-                                  {auction.currentBidLakhs == null
-                                    ? "Start bid"
-                                    : "Bid +0.5 Cr"}
-                                </span>
-                                <span className="text-lg">
-                                  {remainingSeconds == null
-                                    ? "--"
-                                    : remainingSeconds}
-                                </span>
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex-1 text-sm">
-                            <div className="mb-3 border border-gray-700 rounded p-2 bg-gray-900">
-                              <p className="text-xs text-gray-400">
-                                Current bid
-                              </p>
-                              <p className="text-2xl font-extrabold">
-                                {formatAmount(
-                                  currentBidLakhs,
-                                  showInCrores
-                                )}
-                              </p>
-                              {auction.currentBidTeamId &&
-                                teams[auction.currentBidTeamId] && (
-                                  <p className="text-xs text-gray-300 mt-1">
-                                    Held by{" "}
-                                    <span className="font-semibold">
-                                      {
-                                        teams[
-                                          auction
-                                            .currentBidTeamId
-                                        ].name
-                                      }
-                                    </span>
-                                  </p>
-                                )}
-                            </div>
-
-                            <div className="space-y-2">
-                              <div className="flex gap-2 text-xs">
-                                <input
-                                  type="number"
-                                  value={customBidInput}
-                                  onChange={(e) =>
-                                    setCustomBidInput(
-                                      e.target.value
-                                    )
-                                  }
-                                  className="flex-1 px-2 py-1 rounded bg-gray-800 border border-gray-700"
-                                  placeholder={
-                                    showInCrores
-                                      ? "Custom bid (Cr)"
-                                      : "Custom (Lakhs)"
-                                  }
-                                />
                                 <button
+                                  className="w-32 h-32 rounded-full bg-blue-600 flex flex-col items-center justify-center text-sm md:text-base font-bold shadow-lg"
                                   disabled={
-                                    !canBid || !currentPlayerId
+                                    auction.status !== "running" ||
+                                    !currentPlayerId ||
+                                    isMyTeamHighestBidder ||
+                                    isSatOutForCurrentPlayer ||
+                                    myTeamOutOfPurse
                                   }
                                   onClick={() => {
                                     if (
-                                      !currentAuctionPlayer ||
-                                      !currentPlayerId
+                                      auction.currentBidLakhs == null
+                                    ) {
+                                      handleStartBidding(
+                                        currentPlayerBasePriceLakhs,
+                                        currentPlayerId
+                                      );
+                                    } else {
+                                      handleRaiseBid(
+                                        50,
+                                        currentPlayerBasePriceLakhs,
+                                        currentPlayerId
+                                      );
+                                    }
+                                  }}
+                                >
+                                  <span className="text-[11px] uppercase">
+                                    {auction.currentBidLakhs == null
+                                      ? "Start bid"
+                                      : "Bid +0.5 Cr"}
+                                  </span>
+                                  <span className="text-lg">
+                                    {remainingSeconds == null
+                                      ? "--"
+                                      : `${remainingSeconds}s`}
+                                  </span>
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex-1 text-sm">
+                              <div className="mb-3 border border-gray-700 rounded p-2 bg-gray-900">
+                                <p className="text-xs text-gray-400">
+                                  Current bid
+                                </p>
+                                <p className="text-2xl font-extrabold">
+                                  {formatAmount(
+                                    currentBidLakhs,
+                                    showInCrores
+                                  )}
+                                </p>
+                                {auction.currentBidTeamId &&
+                                  teams[auction.currentBidTeamId] && (
+                                    <p className="text-xs text-gray-300 mt-1">
+                                      Held by{" "}
+                                      <span className="font-semibold">
+                                        {
+                                          teams[
+                                            auction.currentBidTeamId
+                                          ].name
+                                        }
+                                      </span>
+                                    </p>
+                                  )}
+                              </div>
+
+                              <p className="text-xs text-gray-400 mb-2">
+                                Bids are in steps of 0.5 Cr; timer starts
+                                at 30s when player appears and resets per
+                                bid. Last 5s in red.
+                              </p>
+                              {myTeamOutOfPurse && (
+                                <p className="text-xs text-red-400 mb-1">
+                                  You are out of purse and cannot bid for
+                                  the rest of this auction.
+                                </p>
+                              )}
+                              <div className="flex flex-wrap gap-3 text-xs mb-3">
+                                <button
+                                  onClick={() =>
+                                    handleRaiseBid(
+                                      100,
+                                      currentPlayerBasePriceLakhs,
+                                      currentPlayerId
                                     )
-                                      return;
-                                    void handlePlaceCustomBid(
+                                  }
+                                  disabled={!canBid || isSatOutForCurrentPlayer}
+                                  className="px-4 py-2 bg-emerald-700 rounded text-sm font-semibold disabled:bg-gray-700"
+                                >
+                                  +1 Cr
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    handleRaiseBid(
+                                      200,
+                                      currentPlayerBasePriceLakhs,
+                                      currentPlayerId
+                                    )
+                                  }
+                                  disabled={!canBid || isSatOutForCurrentPlayer}
+                                  className="px-4 py-2 bg-emerald-800 rounded text-sm font-semibold disabled:bg-gray-700"
+                                >
+                                  +2 Cr
+                                </button>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs mb-3">
+                                <span className="text-[11px]">
+                                  Custom ({showInCrores ? "Cr" : "L"}):
+                                </span>
+                                <input
+                                  type="number"
+                                  className="w-24 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
+                                  value={customBidInput}
+                                  onChange={(e) =>
+                                    setCustomBidInput(e.target.value)
+                                  }
+                                />
+                                <button
+                                  onClick={() =>
+                                    handlePlaceCustomBid(
                                       customBidInput,
                                       currentPlayerBasePriceLakhs,
                                       currentPlayerId
-                                    );
-                                  }}
-                                  className="px-3 py-1 rounded bg-purple-600 disabled:bg-gray-700"
+                                    )
+                                  }
+                                  disabled={!canBid || isSatOutForCurrentPlayer}
+                                  className="px-4 py-2 bg-blue-600 rounded text-sm font-semibold disabled:bg-gray-700"
                                 >
-                                  Place custom
+                                  Place bid
                                 </button>
                               </div>
-                              <p className="text-xs text-gray-400">
-                                Bids are in steps of 0.5 Cr; timer
-                                starts at 30s when player appears.
+                              <div className="flex flex-wrap items-center gap-3 text-xs mb-2">
+                                <button
+                                  onClick={handleSitOut}
+                                  disabled={!canSitOut || isSatOutForCurrentPlayer}
+                                  className={`px-4 py-2 rounded text-sm font-semibold ${
+                                    isSatOutForCurrentPlayer
+                                      ? "bg-red-700"
+                                      : "bg-gray-700"
+                                  } disabled:bg-gray-900`}
+                                >
+                                  {isSatOutForCurrentPlayer
+                                    ? "Sitting out (locked)"
+                                    : "Sit out this player"}
+                                </button>
+                                <button
+                                  onClick={handleUseTimeBank}
+                                  disabled={!canUseTimeBank}
+                                  className="px-4 py-2 bg-amber-600 rounded text-sm font-semibold disabled:bg-gray-900"
+                                >
+                                  Time bank +15s
+                                </button>
+                              </div>
+                              <p className="text-xs text-gray-300">
+                                Time bank left:{" "}
+                                {safeNum(
+                                  myTeam?.timeBankSeconds ?? 0
+                                )}{" "}
+                                s
                               </p>
+                              {isMyTeamHighestBidder && (
+                                <p className="text-xs text-emerald-400 mt-1">
+                                  You currently hold the highest bid for
+                                  this player.
+                                </p>
+                              )}
                             </div>
                           </div>
-                        </div>
+                        </>
                       )}
-                    </div>
-
-                    <div className="flex items-center justify-between text-xs mt-2">
-                      <button
-                        disabled={!canSitOut || isSatOutForCurrentPlayer}
-                        onClick={() => void handleSitOut()}
-                        className="px-3 py-1 rounded bg-gray-800 border border-gray-700 disabled:bg-gray-900 disabled:text-gray-500"
-                      >
-                        {isSatOutForCurrentPlayer
-                          ? "You sat out"
-                          : "Sit out this player"}
-                      </button>
-                      <button
-                        disabled={!canUseTimeBank}
-                        onClick={() => void handleUseTimeBank()}
-                        className="px-3 py-1 rounded bg-amber-500 text-black disabled:bg-gray-700 disabled:text-gray-300"
-                      >
-                        Use 15s time bank (
-                        {safeNum(
-                          myTeam?.timeBankSeconds ?? 0
-                        )}{" "}
-                        s left)
-                      </button>
                     </div>
                   </div>
 
-                  {/* Top-right: sets list / log */}
+                  {/* Top-right: current set OR log */}
                   <div className="bg-black/40 rounded p-3 flex flex-col">
                     <div className="flex items-center justify-between mb-2">
                       <h2 className="text-lg font-semibold">
                         {topRightMode === "set"
-                          ? "Sets overview"
+                          ? "This set"
                           : "Auction log"}
                       </h2>
-                      <div className="flex gap-1 text-[11px]">
+                      <div className="flex gap-1 text-xs">
                         <button
                           onClick={() => setTopRightMode("set")}
-                          className={`px-2 py-0.5 rounded ${
+                          className={`px-2 py-1 rounded ${
                             topRightMode === "set"
                               ? "bg-blue-600"
                               : "bg-gray-800"
                           }`}
                         >
-                          Sets
+                          Set
                         </button>
                         <button
                           onClick={() => setTopRightMode("log")}
-                          className={`px-2 py-0.5 rounded ${
+                          className={`px-2 py-1 rounded ${
                             topRightMode === "log"
                               ? "bg-blue-600"
                               : "bg-gray-800"
@@ -2299,359 +2098,463 @@ export default function RoomPage() {
                         </button>
                       </div>
                     </div>
+
                     {topRightMode === "set" ? (
-                      <div className="text-xs space-y-1 max-h-64 overflow-y-auto">
-                        {allSetsList.map((s) => (
-                          <div
-                            key={s.index}
-                            className={`flex items-center justify-between px-2 py-1 rounded ${
-                              s.index === currentSetIndex
-                                ? "bg-blue-900/60"
-                                : "bg-gray-900"
-                            }`}
-                          >
-                            <span>
-                              Set {s.index + 1}{" "}
-                              {s.index === currentSetIndex &&
-                                "(current)"}
-                            </span>
-                            <span className="text-gray-400">
-                              {s.size} players
-                            </span>
-                          </div>
-                        ))}
-                        {allSetsList.length === 0 && (
-                          <p className="text-gray-400">
-                            No sets generated yet.
-                          </p>
-                        )}
-                      </div>
+                      currentSetPlayersDetailed.length === 0 ? (
+                        <p className="text-sm text-gray-400">
+                          No players in this set.
+                        </p>
+                      ) : (
+                        <div className="text-xs space-y-1 max-h-72 overflow-y-auto">
+                          {currentSetPlayersDetailed.map((p, idx) => {
+                            const dotColor =
+                              p.teamColor ||
+                              (p.status === "unsold"
+                                ? "#6B7280"
+                                : "#9CA3AF");
+                            return (
+                              <div
+                                key={p.id}
+                                className="border-b border-gray-800 pb-1"
+                              >
+                                <p className="font-semibold flex items-center gap-2">
+                                  <span
+                                    className="w-2 h-2 rounded-full"
+                                    style={{ backgroundColor: dotColor }}
+                                  />
+                                  <span
+                                    className={
+                                      idx === currentPlayerIndex
+                                        ? "underline"
+                                        : ""
+                                    }
+                                  >
+                                    {idx + 1}. {p.name}
+                                  </span>
+                                </p>
+                                <p className="text-gray-400">
+                                  Bat:{" "}
+                                  {p.battingScore?.toFixed(1) ?? "–"} ·
+                                  Bowl:{" "}
+                                  {p.bowlingScore?.toFixed(1) ?? "–"} · AR:{" "}
+                                  {p.allRounderScore?.toFixed(1) ?? "–"}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )
+                    ) : logEntries.length === 0 ? (
+                      <p className="text-sm text-gray-400">
+                        No log entries yet. They appear as players are
+                        sold or go unsold.
+                      </p>
                     ) : (
-                      <div className="text-xs max-h-64 overflow-y-auto space-y-1">
-                        {logEntries.length === 0 && (
-                          <p className="text-gray-400">
-                            No log entries yet.
-                          </p>
-                        )}
+                      <div className="text-xs space-y-1 max-h-48 overflow-y-auto">
                         {logEntries.map(([id, entry]) => (
-                          <div
+                          <p
                             key={id}
-                            className="border-b border-gray-800 pb-1"
+                            className="text-gray-300 border-b border-gray-800 pb-1"
                           >
-                            <p className="text-[11px] text-gray-500">
-                              {new Date(
-                                entry.ts
-                              ).toLocaleTimeString()}
-                            </p>
-                            <p>{entry.message}</p>
-                          </div>
+                            <span className="text-[10px] text-gray-500 mr-1">
+                              {new Date(entry.ts).toLocaleTimeString()}
+                            </span>
+                            {entry.message}
+                          </p>
                         ))}
                       </div>
                     )}
                   </div>
                 </div>
               </section>
-            )}
-          </div>
 
-          {/* Right side: bottom panel (teams or set players) */}
-          <section className="bg-gray-900 rounded p-4 flex flex-col">
-            <div className="flex items-center justify-between mb-2 text-sm">
-              <div>
-                <button
-                  onClick={() => setBottomListMode("teams")}
-                  className={`px-3 py-1 rounded mr-1 ${
-                    bottomListMode === "teams"
-                      ? "bg-blue-600"
-                      : "bg-gray-800"
-                  }`}
-                >
-                  Teams
-                </button>
-                <button
-                  onClick={() => setBottomListMode("sets")}
-                  className={`px-3 py-1 rounded ${
-                    bottomListMode === "sets"
-                      ? "bg-blue-600"
-                      : "bg-gray-800"
-                  }`}
-                >
-                  Current set players
-                </button>
-              </div>
-              {bottomListMode === "teams" && (
-                <select
-                  value={selectedTeamId ?? ""}
-                  onChange={(e) =>
-                    setSelectedTeamId(e.target.value)
-                  }
-                  className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
-                >
-                  {Object.entries(teams).map(([id, t]) => (
-                    <option key={id} value={id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              {bottomListMode === "sets" && (
-                <select
-                  value={selectedSetIndex ?? 0}
-                  onChange={(e) =>
-                    setSelectedSetIndex(
-                      Number(e.target.value)
-                    )
-                  }
-                  className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
-                >
-                  {sets.map((_, idx) => (
-                    <option key={idx} value={idx}>
-                      Set {idx + 1}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
+              {/* Bottom thirds */}
+              <section className="grid md:grid-cols-3 gap-4 flex-1">
+                {/* Bottom-left: your players */}
+                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
+                  <h2 className="text-lg font-semibold mb-3">
+                    Your bought players
+                  </h2>
+                  {!myTeam ? (
+                    <p className="text-sm text-gray-400">
+                      Create a team to see your squad.
+                    </p>
+                  ) : !myTeam.playersBought ||
+                    Object.keys(myTeam.playersBought).length === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      You have not bought any players yet.
+                    </p>
+                  ) : (
+                    <ul className="text-sm space-y-1 max-h-72 overflow-y-auto">
+                      {Object.entries(myTeam.playersBought).map(
+                        ([id, p]) => {
+                          const sp = scoredPlayers.find(
+                            (pl) => pl.id === id
+                          );
+                          return (
+                            <li
+                              key={id}
+                              className="flex flex-col border-b border-gray-800 pb-1"
+                            >
+                              <div className="flex justify-between gap-2">
+                                <span>{p.name}</span>
+                                <span className="text-gray-300">
+                                  {formatAmount(
+                                    p.priceLakhs,
+                                    showInCrores
+                                  )}
+                                </span>
+                              </div>
+                              {sp && (
+                                <p className="text-xs text-gray-400 mt-0.5">
+                                  Bat:{" "}
+                                  {sp.battingScore.toFixed(1)} · Bowl:{" "}
+                                  {sp.bowlingScore.toFixed(1)} · AR:{" "}
+                                  {sp.allRounderScore.toFixed(1)}
+                                </p>
+                              )}
+                            </li>
+                          );
+                        }
+                      )}
+                    </ul>
+                  )}
+                </aside>
 
-            {bottomListMode === "teams" ? (
-              <div className="flex-1 overflow-y-auto text-xs">
-                {!selectedTeam ? (
-                  <p className="text-gray-400">
-                    No team selected.
-                  </p>
-                ) : (
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="inline-block w-3 h-3 rounded"
-                          style={{
-                            backgroundColor: selectedTeam.color
-                          }}
-                        />
-                        <span className="font-semibold">
-                          {selectedTeam.name}
-                        </span>
-                      </div>
-                      <div className="text-right text-[11px] text-gray-400">
-                        <p>
-                          Purse left:{" "}
-                          <span className="font-semibold">
-                            {formatAmount(
-                              selectedTeam.purseRemainingLakhs,
-                              showInCrores
-                            )}
-                          </span>
-                        </p>
-                        <p>
+                {/* Bottom-middle: toggle between Teams / Sets */}
+                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
+                  <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-lg font-semibold">
+                      Teams
+                    </h2>
+                  </div>
+
+                  {Object.keys(teams).length === 0 ? (
+                    <p className="text-sm text-gray-400">
+                      No teams yet. Create one when prompted.
+                    </p>
+                  ) : (
+                    <div className="text-sm space-y-2 max-h-72 overflow-y-auto">
+                      {Object.entries(teams).map(([id, team]) => {
+                        const boughtCount = team.playersBought
+                          ? Object.keys(team.playersBought).length
+                          : 0;
+                        const isSelected = id === selectedTeamId;
+                        const outOfPurse = teamOutOfPurse(team);
+                        return (
+                          <button
+                            key={id}
+                            onClick={() => {
+                              setSelectedTeamId(id);
+                            }}
+                            className="w-full text-left border border-gray-800 rounded p-2 hover:border-gray-500"
+                            style={{
+                              borderColor: isSelected
+                                ? team.color
+                                : undefined,
+                              boxShadow: isSelected
+                                ? `0 0 0 1px ${team.color}`
+                                : undefined
+                            }}
+                          >
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-3 h-3 rounded-full"
+                                  style={{
+                                    backgroundColor: team.color
+                                  }}
+                                />
+                                <p className="font-semibold">
+                                  {team.name}
+                                </p>
+                              </div>
+                              <p className="text-xs text-gray-400">
+                                Time bank:{" "}
+                                {safeNum(
+                                  team.timeBankSeconds ?? 0
+                                )}{" "}
+                                s
+                              </p>
+                            </div>
+                            <p className="text-gray-300">
+                              Purse:{" "}
+                              {formatAmount(
+                                team.purseRemainingLakhs,
+                                showInCrores
+                              )}{" "}
+                              {outOfPurse && (
+                                <span className="text-xs text-red-400 ml-1">
+                                  (out of purse)
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-xs text-gray-400">
+                              Players bought: {boughtCount}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </aside>
+
+                {/* Bottom-right: team details */}
+                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
+                  <h2 className="text-lg font-semibold mb-2">
+                    Team details
+                  </h2>
+                  {!selectedTeam ? (
+                    <p className="text-sm text-gray-400">
+                      Click a team in the middle to see details here.
+                    </p>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-3 h-3 rounded-full"
+                            style={{
+                              backgroundColor: selectedTeam.color
+                            }}
+                          />
+                          <p className="font-semibold">
+                            {selectedTeam.name}
+                          </p>
+                        </div>
+                        <p className="text-xs text-gray-400">
                           Time bank:{" "}
                           {safeNum(
                             selectedTeam.timeBankSeconds ?? 0
                           )}{" "}
                           s
                         </p>
-                        <p>
-                          Players bought:{" "}
-                          {selectedTeam.playersBought
-                            ? Object.keys(
-                                selectedTeam.playersBought
-                              ).length
-                            : 0}
-                        </p>
                       </div>
-                    </div>
-                    <div className="border-t border-gray-800 pt-2">
-                      <h3 className="font-semibold mb-1">
-                        Bought players
-                      </h3>
-                      {selectedTeam.playersBought ? (
-                        <ul className="space-y-1">
-                          {Object.entries(
-                            selectedTeam.playersBought
-                          ).map(([pid, info]) => {
-                            const sp =
-                              scoredPlayers.find(
-                                (p) => p.id === pid
-                              ) ?? null;
-                            return (
-                              <li
-                                key={pid}
-                                className="flex justify-between items-center border border-gray-800 rounded px-2 py-1"
-                              >
-                                <div>
-                                  <p className="font-semibold">
-                                    {info.name}
-                                  </p>
-                                  {sp && (
-                                    <p className="text-[11px] text-gray-300">
-                                      Bat {sp.battingScore.toFixed(
-                                        1
+                      <p className="text-sm text-gray-300 mb-1">
+                        Purse:{" "}
+                        {formatAmount(
+                          selectedTeam.purseRemainingLakhs,
+                          showInCrores
+                        )}
+                      </p>
+                      <div className="border-t border-gray-800 pt-2 text-xs">
+                        <p className="font-semibold mb-1">
+                          Players bought
+                        </p>
+                        {selectedTeam.playersBought &&
+                        Object.keys(
+                          selectedTeam.playersBought
+                        ).length > 0 ? (
+                          <ul className="space-y-0.5 max-h-72 overflow-y-auto">
+                            {Object.entries(
+                              selectedTeam.playersBought
+                            ).map(([pid, p]) => {
+                              const sp = scoredPlayers.find(
+                                (pl) => pl.id === pid
+                              );
+                              return (
+                                <li
+                                  key={pid}
+                                  className="flex flex-col border-b border-gray-800 pb-1"
+                                >
+                                  <div className="flex justify-between gap-2">
+                                    <span>{p.name}</span>
+                                    <span className="text-gray-300">
+                                      {formatAmount(
+                                        p.priceLakhs,
+                                        showInCrores
                                       )}
-                                      {" · "}Bowl{" "}
+                                    </span>
+                                  </div>
+                                  {sp && (
+                                    <p className="text-[11px] text-gray-400 mt-0.5">
+                                      Bat:{" "}
+                                      {sp.battingScore.toFixed(
+                                        1
+                                      )}{" "}
+                                      · Bowl:{" "}
                                       {sp.bowlingScore.toFixed(
                                         1
-                                      )}
-                                      {" · "}AR{" "}
+                                      )}{" "}
+                                      · AR:{" "}
                                       {sp.allRounderScore.toFixed(
                                         1
                                       )}
                                     </p>
                                   )}
-                                </div>
-                                <span className="text-[11px] text-gray-300">
-                                  {formatAmount(
-                                    info.priceLakhs,
-                                    showInCrores
-                                  )}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      ) : (
-                        <p className="text-gray-400">
-                          No players bought yet.
-                        </p>
-                      )}
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : (
+                          <p className="text-gray-500">
+                            No players bought yet.
+                          </p>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </aside>
+              </section>
+            </>
+          )}
+        </>
+      )}
+
+      {/* TAB: RESULTS */}
+      {tab === "results" && (
+        <section className="bg-gray-900 rounded p-4 flex flex-col gap-4">
+          <h2 className="text-lg font-semibold mb-2">
+            Auction results
+          </h2>
+
+          <div className="grid md:grid-cols-2 gap-4 text-sm">
+            {Object.entries(teams).map(([id, team]) => {
+              const bought = team.playersBought || {};
+              const totalPlayers = Object.keys(bought).length;
+              const totalSpentLakhs = Object.values(bought).reduce(
+                (sum, p) => sum + safeNum(p.priceLakhs),
+                0
+              );
+              return (
+                <div
+                  key={id}
+                  className="border border-gray-800 rounded p-3"
+                  style={{ borderColor: team.color }}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="w-3 h-3 rounded-full"
+                        style={{ backgroundColor: team.color }}
+                      />
+                      <span className="font-semibold">
+                        {team.name}
+                      </span>
                     </div>
+                    <span className="text-xs text-gray-400">
+                      Players: {totalPlayers}
+                    </span>
                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto text-xs">
-                {sets.length === 0 ? (
-                  <p className="text-gray-400">
-                    No sets generated yet.
+                  <p className="text-xs text-gray-300">
+                    Spent:{" "}
+                    {formatAmount(totalSpentLakhs, showInCrores)}
                   </p>
-                ) : (
-                  <>
-                    <p className="text-gray-400 mb-1">
-                      Showing set{" "}
-                      {(selectedSetIndex ?? 0) + 1} of{" "}
-                      {sets.length}
-                    </p>
-                    <ul className="space-y-1">
-                      {(
-                        sets[selectedSetIndex ?? 0] || []
-                      ).map((pid) => {
-                        const sp =
-                          scoredPlayers.find(
-                            (p) => p.id === pid
-                          ) ?? null;
-                        const rp = players[pid];
-                        const soldTeam =
-                          rp?.soldToTeamId &&
-                          teams[rp.soldToTeamId]
-                            ? teams[rp.soldToTeamId]
-                            : undefined;
-                        return (
-                          <li
-                            key={pid}
-                            className="flex justify-between items-center border border-gray-800 rounded px-2 py-1"
-                          >
-                            <div>
-                              <p className="font-semibold">
-                                {sp?.name ??
-                                  rp?.name ??
-                                  pid}
-                              </p>
-                              {sp && (
-                                <p className="text-[11px] text-gray-300">
-                                  Bat{" "}
-                                  {sp.battingScore.toFixed(
-                                    1
-                                  )}
-                                  {" · "}Bowl{" "}
-                                  {sp.bowlingScore.toFixed(
-                                    1
-                                  )}
-                                  {" · "}AR{" "}
-                                  {sp.allRounderScore.toFixed(
-                                    1
-                                  )}
-                                </p>
-                              )}
-                              {rp?.status === "sold" &&
-                                soldTeam && (
-                                  <p className="text-[11px] text-emerald-400">
-                                    Sold to{" "}
-                                    {soldTeam.name} for{" "}
-                                    {formatAmount(
-                                      rp.soldPriceLakhs,
-                                      showInCrores
-                                    )}
-                                  </p>
-                                )}
-                              {rp?.status ===
-                                "unsold" && (
-                                <p className="text-[11px] text-red-400">
-                                  Unsold
-                                </p>
-                              )}
-                            </div>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </>
-                )}
-              </div>
-            )}
-          </section>
+                  <p className="text-xs text-gray-300">
+                    Purse left:{" "}
+                    {formatAmount(
+                      team.purseRemainingLakhs,
+                      showInCrores
+                    )}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div>
+            <h3 className="text-md font-semibold mb-2">
+              All sold players
+            </h3>
+            <div className="max-h-80 overflow-y-auto text-xs">
+              <table className="w-full border-collapse">
+                <thead className="bg-gray-800">
+                  <tr>
+                    <th className="p-2 text-left">Player</th>
+                    <th className="p-2 text-left">Team</th>
+                    <th className="p-2 text-right">Price</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {allSoldPlayers.map(([pid, p]) => {
+                    const team =
+                      p.soldToTeamId && teams[p.soldToTeamId]
+                        ? teams[p.soldToTeamId]
+                        : undefined;
+                    return (
+                      <tr
+                        key={pid}
+                        className="border-t border-gray-800"
+                      >
+                        <td className="p-2">{p.name}</td>
+                        <td className="p-2">
+                          {team ? (
+                            <span className="inline-flex items-center gap-2">
+                              <span
+                                className="w-2 h-2 rounded-full"
+                                style={{ backgroundColor: team.color }}
+                              />
+                              {team.name}
+                            </span>
+                          ) : (
+                            "Unknown"
+                          )}
+                        </td>
+                        <td className="p-2 text-right">
+                          {formatAmount(
+                            p.soldPriceLakhs,
+                            showInCrores
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {allSoldPlayers.length === 0 && (
+                <p className="text-xs text-gray-400 mt-2">
+                  No players were sold in this auction.
+                </p>
+              )}
+            </div>
+          </div>
         </section>
       )}
 
-      {tab === "results" && (
-        <section className="bg-gray-900 rounded p-4">
-          <h2 className="text-lg font-semibold mb-3">
-            Auction summary
-          </h2>
-          {allSoldPlayers.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              No players sold yet.
+      {/* Team creation modal */}
+      {showTeamModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-gray-900 border border-gray-700 rounded p-4 w-full max-w-sm">
+            <h2 className="text-lg font-semibold mb-2">
+              Create your team
+            </h2>
+            <p className="text-xs text-gray-400 mb-3">
+              Enter a unique team name for this room. A random team colour
+              and starting purse will be assigned to you. The first UID to
+              create a team becomes the auction admin.
             </p>
-          ) : (
-            <table className="w-full text-xs">
-              <thead className="text-left text-gray-300 border-b border-gray-700">
-                <tr>
-                  <th className="py-2 pr-3">Player</th>
-                  <th className="py-2 pr-3">Team</th>
-                  <th className="py-2 pr-3 text-right">
-                    Price
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {allSoldPlayers.map(([pid, p]) => {
-                  const team =
-                    p.soldToTeamId &&
-                    teams[p.soldToTeamId]
-                      ? teams[p.soldToTeamId]
-                      : undefined;
-                  return (
-                    <tr
-                      key={pid}
-                      className="border-b border-gray-800 last:border-b-0"
-                    >
-                      <td className="py-1.5 pr-3">
-                        {p.name}
-                      </td>
-                      <td className="py-1.5 pr-3">
-                        {team ? team.name : "-"}
-                      </td>
-                      <td className="py-1.5 pr-3 text-right">
-                        {formatAmount(
-                          p.soldPriceLakhs,
-                          showInCrores
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </section>
+            <input
+              type="text"
+              value={teamNameInput}
+              onChange={(e) => setTeamNameInput(e.target.value)}
+              className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm mb-2"
+              placeholder="e.g. Bengaluru Blasters"
+            />
+            {teamModalError && (
+              <p className="text-xs text-red-400 mb-2">
+                {teamModalError}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 mt-1">
+              <button
+                onClick={() => {
+                  if (!localTeamId) return;
+                  setShowTeamModal(false);
+                }}
+                className="px-3 py-1 text-xs rounded bg-gray-800 border border-gray-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateTeam}
+                disabled={creatingTeam}
+                className="px-3 py-1 text-xs rounded bg-green-600 disabled:bg-gray-600"
+              >
+                {creatingTeam ? "Creating..." : "Create team"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </main>
   );
