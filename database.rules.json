@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": "auth != null",
+    ".write": "auth != null",
+    "rooms": {
+      "$roomId": {
+        ".read": "auth != null",
+        "adminUid": {
+          ".write": "auth != null && !data.exists()"
+        },
+        "teams": {
+          "$teamId": {
+            ".read": "auth != null",
+            ".write": "auth != null && ( !data.exists() && newData.child('ownerUid').val() === auth.uid || data.exists() && data.child('ownerUid').val() === auth.uid )"
+          }
+        },
+        "auction": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms').child($roomId).child('adminUid').val() === auth.uid"
+        },
+        "players": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms').child($roomId).child('adminUid').val() === auth.uid"
+        },
+        "config": {
+          ".read": "auth != null",
+          ".write": "auth != null && root.child('rooms').child($roomId).child('adminUid').val() === auth.uid"
+        }
+      }
+    },
+    "seasons": {
+      "$seasonId": {
+        ".read": "auth != null",
+        ".write": "false"
+      }
+    }
+  }
+}
