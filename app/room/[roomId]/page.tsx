@@ -887,10 +887,16 @@ export default function RoomPage() {
       return;
     }
     const teams = room.teams || {};
-    if (!teams[localTeamId]) {
-      alert("Your team was not found in this room.");
-      return;
-    }
+ const myTeam = teams[localTeamId];
+ if (!myTeam) {
+  alert("Your team was not found in this room.");
+  return;
+ }
+ if (teamOutOfPurse(myTeam)) {
+  // Already out of purse for the rest of the auction; treat as permanently locked.
+  return;
+ }
+
 
     const auctionRef = ref(db, `rooms/${dbRoomId}/auction`);
     const auctionSnap = await get(auctionRef);
@@ -1145,6 +1151,48 @@ if (forceSatOut) {
       return () => clearInterval(id);
     }
   }, [dbRoomId, room?.auction?.status, room?.auction?.bidDeadlineTs]);
+
+    // Auto-sit-out teams that are out of purse or already have 25 players
+  useEffect(() => {
+    if (!dbRoomId || !room?.auction || room.auction.status !== "running") return;
+
+    const auctionNow = room.auction;
+    const setsNow = auctionNow.sets || [];
+    const setIndex = auctionNow.currentSetIndex ?? 0;
+    const playerIndex = auctionNow.currentPlayerIndex ?? 0;
+    const currentSet = setsNow[setIndex] || [];
+    const playerId = currentSet[playerIndex];
+    if (!playerId) return; // no active player
+
+    const teamsNow = room.teams || {};
+    const satOut = auctionNow.satOutTeams || {};
+    const newSatOut: Record<string, boolean> = { ...satOut };
+
+    Object.entries(teamsNow).forEach(([id, t]) => {
+      const count = t.playersBought ? Object.keys(t.playersBought).length : 0;
+      if (teamOutOfPurse(t) || count >= 25) {
+        newSatOut[id] = true;
+      }
+    });
+
+    // Only write if something actually changed
+    const changed =
+      Object.keys(newSatOut).length !== Object.keys(satOut).length ||
+      Object.keys(newSatOut).some((k) => satOut[k] !== newSatOut[k]);
+
+    if (changed) {
+      void update(ref(db, `rooms/${dbRoomId}/auction`), {
+        satOutTeams: newSatOut
+      });
+    }
+  }, [
+    dbRoomId,
+    room?.auction?.status,
+    room?.auction?.currentSetIndex,
+    room?.auction?.currentPlayerIndex,
+    room?.teams
+  ]);
+
 
   // After 5s result banner, automatically advance to next player; if auction done, redirect to team setup
   useEffect(() => {
@@ -1470,12 +1518,12 @@ if (forceSatOut) {
   const canSitOut =
   auction.status === "running" &&
   !!currentPlayerId &&
-  !isMyTeamHighestBidder;
+  !isMyTeamHighestBidder &&
+  !myTeamOutOfPurse;
 
   const isSatOutForCurrentPlayer =
-    !!(auction.satOutTeams &&
-       localTeamId &&
-       auction.satOutTeams[localTeamId]);
+  !!auction.satOutTeams?.[localTeamId ?? ""] || myTeamOutOfPurse;
+
 
   const handleCopyRoomCode = async () => {
     try {
@@ -2046,14 +2094,15 @@ if (forceSatOut) {
                                 <button
   onClick={handleSitOut}
   disabled={!canSitOut || isSatOutForCurrentPlayer}
-  className={`px-4 py-2 rounded text-sm font-semibold ${
+  className={`px-4 py-2 rounded text-sm font-semibold border ${
     isSatOutForCurrentPlayer
-      ? "bg-red-700"
-      : "bg-gray-700"
-  } disabled:bg-gray-900`}
+      ? "bg-red-700 border-red-400"
+      : "bg-gray-700 border-gray-500"
+  } ${!canSitOut ? "opacity-50 cursor-not-allowed" : ""}`}
 >
   {isSatOutForCurrentPlayer ? "Sitting out (locked)" : "Sit out this player"}
 </button>
+
 
                                 <button
                                   onClick={handleUseTimeBank}
