@@ -1068,9 +1068,26 @@ if (forceSatOut) {
       const auctionSnap = await get(auctionRef);
       const auctionNow = (auctionSnap.val() as AuctionState) || {};
 
-      if (auctionNow.status !== "running") return;
+            if (auctionNow.status !== "running") return;
       if (!auctionNow.bidDeadlineTs) return;
+
+      // If only one active (not sat-out / not out-of-purse) team holds a bid,
+      // auto-sell immediately instead of waiting full 30s.
+      const teamsNow = (room?.teams || {}) as Record<string, Team>;
+      const activeTeamIdsNow = Object.keys(teamsNow).filter(
+        (id) => !isEffectivelySatOut(id, auctionNow, teamsNow)
+      );
+      if (
+        activeTeamIdsNow.length === 1 &&
+        auctionNow.currentBidTeamId &&
+        auctionNow.currentBidLakhs != null
+      ) {
+        await autoSellToSingleActiveBidder(dbRoomId);
+        return;
+      }
+
       if (Date.now() < auctionNow.bidDeadlineTs) return;
+
 
       const sets = auctionNow.sets || [];
       const setIndex = auctionNow.currentSetIndex ?? 0;
