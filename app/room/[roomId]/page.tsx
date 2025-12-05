@@ -365,6 +365,16 @@ export default function RoomPage() {
     null
   );
 
+  // Simple entrance animation flags (visual only)
+  const [shellEntered, setShellEntered] = useState(false);
+  const [contentEntered, setContentEntered] = useState(false);
+
+  useEffect(() => {
+    setShellEntered(true);
+    const id = setTimeout(() => setContentEntered(true), 150);
+    return () => clearTimeout(id);
+  }, []);
+
   // Auth
   useEffect(() => {
     const auth = getAuth();
@@ -887,16 +897,15 @@ export default function RoomPage() {
       return;
     }
     const teams = room.teams || {};
- const myTeam = teams[localTeamId];
- if (!myTeam) {
-  alert("Your team was not found in this room.");
-  return;
- }
- if (teamOutOfPurse(myTeam)) {
-  // Already out of purse for the rest of the auction; treat as permanently locked.
-  return;
- }
-
+    const myTeam = teams[localTeamId];
+    if (!myTeam) {
+      alert("Your team was not found in this room.");
+      return;
+    }
+    if (teamOutOfPurse(myTeam)) {
+      // Already out of purse for the rest of the auction; treat as permanently locked.
+      return;
+    }
 
     const auctionRef = ref(db, `rooms/${dbRoomId}/auction`);
     const auctionSnap = await get(auctionRef);
@@ -909,33 +918,37 @@ export default function RoomPage() {
     if (!playerId) return;
 
     const satOut = auctionNow.satOutTeams || {};
-if (satOut[localTeamId]) {
-  return;
-}
+    if (satOut[localTeamId]) {
+      return;
+    }
 
-// If team is out of purse or already has 25 players, force sat-out
-const teamsNow = teams;
-const myTeamNow = teamsNow[localTeamId];
-const myCount =
-  myTeamNow?.playersBought
-    ? Object.keys(myTeamNow.playersBought).length
-    : 0;
-const forceSatOut =
-  teamOutOfPurse(myTeamNow) || myCount >= 25;
+    // If team is out of purse or already has 25 players, force sat-out
+    const teamsNow = teams;
+    const myTeamNow = teamsNow[localTeamId];
+    const myCount =
+      myTeamNow?.playersBought
+        ? Object.keys(myTeamNow.playersBought).length
+        : 0;
+    const forceSatOut =
+      teamOutOfPurse(myTeamNow) || myCount >= 25;
 
-const newSatOut: Record<string, boolean> = {
-  ...satOut,
-  [localTeamId]: true
-};
+    const newSatOut: Record<string, boolean> = {
+      ...satOut,
+      [localTeamId]: true
+    };
 
-if (forceSatOut) {
-  // just mark sat-out and continue with rest of logic
-}
-
+    if (forceSatOut) {
+      // just mark sat-out and continue with rest of logic
+    }
 
     const teamIds = Object.keys(teams);
     const activeTeamIds = teamIds.filter(
-      (id) => !isEffectivelySatOut(id, { ...auctionNow, satOutTeams: newSatOut }, teams)
+      (id) =>
+        !isEffectivelySatOut(
+          id,
+          { ...auctionNow, satOutTeams: newSatOut },
+          teams
+        )
     );
 
     // more than one active team left -> just mark sat out
@@ -1068,7 +1081,7 @@ if (forceSatOut) {
       const auctionSnap = await get(auctionRef);
       const auctionNow = (auctionSnap.val() as AuctionState) || {};
 
-            if (auctionNow.status !== "running") return;
+      if (auctionNow.status !== "running") return;
       if (!auctionNow.bidDeadlineTs) return;
 
       // If only one active (not sat-out / not out-of-purse) team holds a bid,
@@ -1087,7 +1100,6 @@ if (forceSatOut) {
       }
 
       if (Date.now() < auctionNow.bidDeadlineTs) return;
-
 
       const sets = auctionNow.sets || [];
       const setIndex = auctionNow.currentSetIndex ?? 0;
@@ -1167,9 +1179,9 @@ if (forceSatOut) {
       }, 300);
       return () => clearInterval(id);
     }
-  }, [dbRoomId, room?.auction?.status, room?.auction?.bidDeadlineTs]);
+  }, [dbRoomId, room?.auction?.status, room?.auction?.bidDeadlineTs, room?.teams]);
 
-    // Auto-sit-out teams that are out of purse or already have 25 players
+  // Auto-sit-out teams that are out of purse or already have 25 players
   useEffect(() => {
     if (!dbRoomId || !room?.auction || room.auction.status !== "running") return;
 
@@ -1209,7 +1221,6 @@ if (forceSatOut) {
     room?.auction?.currentPlayerIndex,
     room?.teams
   ]);
-
 
   // After 5s result banner, automatically advance to next player; if auction done, redirect to team setup
   useEffect(() => {
@@ -1403,21 +1414,25 @@ if (forceSatOut) {
 
   if (loadingRoom) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p>Loading room...</p>
+      <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-slate-900 text-white flex items-center justify-center px-4">
+        <p className="text-sm text-gray-200">Loading room...</p>
       </main>
     );
   }
 
   if (!room) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center p-4">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Room not found</h1>
-          <p className="mb-4">Check the URL or room ID.</p>
+      <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-slate-900 text-white flex items-center justify-center px-4">
+        <div className="relative w-full max-w-md rounded-3xl px-6 py-5 bg-black/60 border border-slate-700/60 backdrop-blur shadow-[0_0_40px_rgba(15,23,42,0.9)] text-center">
+          <h1 className="text-2xl font-extrabold mb-2">
+            Room not found
+          </h1>
+          <p className="mb-4 text-sm text-gray-300">
+            Check the URL or room ID and try again.
+          </p>
           <button
             onClick={() => router.push("/")}
-            className="px-4 py-2 bg-blue-600 rounded"
+            className="px-4 py-2 rounded-xl bg-emerald-300 hover:bg-emerald-200 text-black font-semibold text-sm transition-colors"
           >
             Back to home
           </button>
@@ -1506,7 +1521,7 @@ if (forceSatOut) {
       remainingSeconds != null && remainingSeconds <= 5
         ? "#f97373"
         : "#22C55E"
-    } ${sweepDeg}deg, #1f2937 ${sweepDeg}deg)`
+    } ${sweepDeg}deg, #020617 ${sweepDeg}deg)`
   };
 
   const allSoldPlayers = Object.entries(players).filter(
@@ -1533,14 +1548,13 @@ if (forceSatOut) {
     safeNum(myTeam.timeBankSeconds ?? 0) >= 15;
 
   const canSitOut =
-  auction.status === "running" &&
-  !!currentPlayerId &&
-  !isMyTeamHighestBidder &&
-  !myTeamOutOfPurse;
+    auction.status === "running" &&
+    !!currentPlayerId &&
+    !isMyTeamHighestBidder &&
+    !myTeamOutOfPurse;
 
   const isSatOutForCurrentPlayer =
-  !!auction.satOutTeams?.[localTeamId ?? ""] || myTeamOutOfPurse;
-
+    !!auction.satOutTeams?.[localTeamId ?? ""] || myTeamOutOfPurse;
 
   const handleCopyRoomCode = async () => {
     try {
@@ -1556,1088 +1570,1096 @@ if (forceSatOut) {
   };
 
   return (
-    <main className="min-h-screen bg-black text-white p-4 flex flex-col gap-4">
-      {/* Top bar */}
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            Idiots Premier League Auction
-          </h1>
-          <p className="text-sm text-gray-400 flex items-center gap-2 mt-1">
-            Room code:
-            <span className="font-mono text-base">{displayRoomId}</span>
-            <button
-              onClick={handleCopyRoomCode}
-              className="px-2 py-0.5 text-xs rounded bg-gray-800 border border-gray-600"
-            >
-              Copy
-            </button>
-          </p>
-          <p className="text-sm text-gray-400">
-            Season: {cfgDisplay.season ?? room.config?.season ?? "unknown"}
-          </p>
-          {myTeam && (
-            <p className="text-sm mt-1">
-              You are:{" "}
-              <span
-                className="font-semibold px-2 py-0.5 rounded"
-                style={{ backgroundColor: myTeam.color }}
+    <main className="min-h-screen bg-gradient-to-br from-black via-slate-950 to-slate-900 text-white p-4 flex flex-col gap-4 relative">
+      {/* background glow */}
+      <div className="pointer-events-none fixed inset-0 opacity-40 blur-3xl">
+        <div className="absolute -top-32 -left-10 h-72 w-72 bg-emerald-500/40 rounded-full mix-blend-screen" />
+        <div className="absolute bottom-0 right-0 h-80 w-80 bg-sky-500/40 rounded-full mix-blend-screen" />
+      </div>
+
+      <div
+        className={`relative flex flex-col gap-4 z-10 transition-all duration-700 ease-out transform ${
+          shellEntered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
+        }`}
+      >
+        {/* Top bar – same layout as before, new colors */}
+        <header
+          className={`flex flex-col md:flex-row md:items-center md:justify-between gap-3 rounded-3xl px-5 py-4 md:px-7 md:py-5 bg-black/50 border border-slate-700/70 backdrop-blur shadow-[0_0_40px_rgba(15,23,42,0.9)] transition-all duration-700 ease-out ${
+            contentEntered ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
+          }`}
+        >
+          <div>
+            <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+              <span className="bg-gradient-to-r from-emerald-300 via-sky-300 to-purple-300 bg-clip-text text-transparent">
+                Idiots Premier League Auction
+              </span>
+            </h1>
+            <p className="text-sm text-gray-200 flex items-center gap-2 mt-1">
+              Room code:
+              <span className="font-mono text-base tracking-[0.25em] bg-black/60 px-3 py-1 rounded-lg">
+                {displayRoomId}
+              </span>
+              <button
+                onClick={handleCopyRoomCode}
+                className="px-3 py-1 text-[11px] rounded-lg bg-slate-100 text-black font-semibold hover:bg-white/90 transition-colors"
               >
-                {myTeam.name}
-              </span>
-              {isAdmin && (
-                <span className="ml-2 text-xs bg-amber-500 text-black px-2 py-0.5 rounded">
-                  Admin
+                Copy
+              </button>
+            </p>
+            <p className="text-sm text-gray-300">
+              Season: {cfgDisplay.season ?? room.config?.season ?? "unknown"}
+            </p>
+            {myTeam && (
+              <p className="text-sm mt-1 flex items-center gap-2">
+                You are:{" "}
+                <span
+                  className="font-semibold px-2 py-0.5 rounded-md shadow-sm"
+                  style={{ backgroundColor: myTeam.color }}
+                >
+                  {myTeam.name}
                 </span>
-              )}
-            </p>
-          )}
-          {!isAdmin && adminTeam && (
-            <p className="text-xs text-gray-400 mt-1">
-              Auction controlled by: {adminTeam.name}
-            </p>
-          )}
-          <div className="flex gap-2 mt-2 text-xs">
-            <button
-              onClick={() => setTab("auction")}
-              className={`px-2 py-1 rounded ${
-                tab === "auction" ? "bg-blue-600" : "bg-gray-800"
-              }`}
-            >
-              Auction
-            </button>
-            <button
-              onClick={() => setTab("results")}
-              disabled={(auction.status ?? "not_started") !== "finished"}
-              className={`px-2 py-1 rounded ${
-                tab === "results" ? "bg-blue-600" : "bg-gray-800"
-              } disabled:bg-gray-700`}
-            >
-              Results
-            </button>
-          </div>
-        </div>
-        <div className="flex flex-col items-end gap-2 text-sm">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowInCrores((prev) => !prev)}
-              className="px-3 py-1 rounded bg-gray-800 border border-gray-600 text-xs"
-            >
-              View in: {showInCrores ? "Crores" : "Lakhs"}
-            </button>
-            <button
-              onClick={handleExportCsv}
-              disabled={!isAdmin}
-              className="px-3 py-1 bg-gray-700 rounded disabled:bg-gray-900 text-xs"
-            >
-              Export CSV (admin)
-            </button>
-          </div>
-          <div className="text-right">
-            <p>
-              Status:{" "}
-              <span className="font-semibold capitalize">
-                {auction.status ?? "waiting"}
-              </span>
-            </p>
-            {room.createdAt && (
-              <p className="text-gray-400 text-xs">
-                Created: {new Date(room.createdAt).toLocaleString()}
+                {isAdmin && (
+                  <span className="ml-2 text-xs bg-amber-400 text-black px-2 py-0.5 rounded-full font-semibold uppercase tracking-wide">
+                    Admin
+                  </span>
+                )}
               </p>
             )}
+            {!isAdmin && adminTeam && (
+              <p className="text-xs text-gray-400 mt-1">
+                Auction controlled by: {adminTeam.name}
+              </p>
+            )}
+            <div className="flex gap-2 mt-2 text-xs">
+              <button
+                onClick={() => setTab("auction")}
+                className={`px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                  tab === "auction"
+                    ? "bg-emerald-300 text-black"
+                    : "bg-slate-800 text-gray-200 hover:bg-slate-700"
+                }`}
+              >
+                Auction
+              </button>
+              <button
+                onClick={() => setTab("results")}
+                disabled={(auction.status ?? "not_started") !== "finished"}
+                className={`px-3 py-1.5 rounded-full font-semibold transition-colors ${
+                  tab === "results"
+                    ? "bg-sky-300 text-black"
+                    : "bg-slate-800 text-gray-200 hover:bg-slate-700"
+                } disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed`}
+              >
+                Results
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
-
-      {/* TAB: AUCTION */}
-      {tab === "auction" && (
-        <>
-          {/* STEP 1: Config */}
-          {view === "config" && (
-            <section className="bg-gray-900 rounded p-4 flex flex-col gap-4">
-              <div>
-                <h2 className="text-lg font-semibold mb-2">
-                  Step 1 – Conversion Factors
-                </h2>
-                <p className="text-xs text-gray-400 mb-3">
-                  Only the room admin should change these values. Then click
-                  &quot;Next&quot; to prepare the auction.
+          <div className="flex flex-col items-end gap-2 text-sm">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowInCrores((prev) => !prev)}
+                className="px-3 py-1.5 rounded-xl bg-slate-900/70 border border-slate-600 text-xs font-semibold hover:border-slate-300 transition-colors"
+              >
+                View in: {showInCrores ? "Crores" : "Lakhs"}
+              </button>
+              <button
+                onClick={handleExportCsv}
+                disabled={!isAdmin}
+                className="px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-600 text-xs font-semibold hover:border-slate-400 disabled:bg-slate-900 disabled:text-slate-500 disabled:border-slate-700 disabled:cursor-not-allowed transition-colors"
+              >
+                Export CSV (admin)
+              </button>
+            </div>
+            <div className="text-right">
+              <p>
+                Status:{" "}
+                <span className="font-semibold capitalize text-emerald-300">
+                  {auction.status ?? "waiting"}
+                </span>
+              </p>
+              {room.createdAt && (
+                <p className="text-gray-400 text-xs">
+                  Created: {new Date(room.createdAt).toLocaleString()}
                 </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                  <div>
-                    <label className="block text-xs mb-1">Season</label>
-                    <input
-                      type="text"
-                      value={cfgDisplay.season ?? ""}
-                      onChange={(e) =>
-                        handleConfigChange("season", e.target.value)
-                      }
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1">
-                      CF1 (Wickets)
-                    </label>
-                    <input
-                      type="number"
-                      value={cfgDisplay.CF1 ?? ""}
-                      onChange={(e) =>
-                        handleConfigChange("CF1", e.target.value)
-                      }
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1">
-                      CF2 (Bowling)
-                    </label>
-                    <input
-                      type="number"
-                      value={cfgDisplay.CF2 ?? ""}
-                      onChange={(e) =>
-                        handleConfigChange("CF2", e.target.value)
-                      }
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs mb-1">CF3 (AR)</label>
-                    <input
-                      type="number"
-                      value={cfgDisplay.CF3 ?? ""}
-                      onChange={(e) =>
-                        handleConfigChange("CF3", e.target.value)
-                      }
-                      disabled={!isAdmin}
-                      className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 disabled:opacity-60"
-                    />
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2 items-center">
-                  <button
-                    onClick={handleSaveConfig}
-                    disabled={savingConfig || !isAdmin}
-                    className="px-4 py-2 bg-blue-600 rounded disabled:bg-gray-600 text-sm"
-                  >
-                    {savingConfig ? "Saving..." : "Save config"}
-                  </button>
-                  <button
-                    onClick={handleConfigNext}
-                    disabled={!isAdmin}
-                    className="px-4 py-2 bg-purple-600 rounded text-sm disabled:bg-gray-700"
-                  >
-                    Next: prepare auction
-                  </button>
-                  {!isAdmin && (
-                    <p className="text-xs text-gray-400">
-                      Only the admin (first UID to create a team) can change
-                      factors and generate sets.
-                    </p>
-                  )}
-                </div>
-              </div>
+              )}
+            </div>
+          </div>
+        </header>
 
-              <div>
-                <h2 className="text-lg font-semibold mb-3">
-                  Ranking preview (per room)
-                </h2>
-                {loadingSeason ? (
-                  <p className="text-sm text-gray-400">
-                    Loading season players...
+        {/* TAB: AUCTION */}
+        {tab === "auction" && (
+          <>
+            {/* STEP 1: Config – original layout, updated look */}
+            {view === "config" && (
+              <section className="bg-slate-950/80 rounded p-4 flex flex-col gap-4 border border-emerald-400/40 shadow-[0_0_25px_rgba(16,185,129,0.4)] backdrop-blur">
+                <div>
+                  <h2 className="text-lg font-semibold mb-2">
+                    Step 1 – Conversion Factors
+                  </h2>
+                  <p className="text-xs text-emerald-50/80 mb-3">
+                    Only the room admin should change these values. Then click
+                    "Next" to prepare the auction.
                   </p>
-                ) : scoredPlayers.length === 0 ? (
-                  <p className="text-sm text-gray-400">
-                    No players loaded for this season. Import
-                    seasons/{cfgDisplay.season}/players.
-                  </p>
-                ) : (
-                  <div className="grid md:grid-cols-3 gap-3 text-xs">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
                     <div>
-                      <h3 className="font-semibold mb-1">
-                        Top Batting Score
-                      </h3>
-                      <ol className="list-decimal list-inside space-y-1">
-                        {topBatters.map((p) => (
-                          <li key={p.id}>
-                            {p.name} – {p.battingScore.toFixed(2)}
-                          </li>
-                        ))}
-                      </ol>
+                      <label className="block text-xs mb-1">Season</label>
+                      <input
+                        type="text"
+                        value={cfgDisplay.season ?? ""}
+                        onChange={(e) =>
+                          handleConfigChange("season", e.target.value)
+                        }
+                        disabled={!isAdmin}
+                        className="w-full px-2 py-1 rounded bg-black/40 border border-emerald-300/60 disabled:opacity-60 outline-none focus:border-emerald-100"
+                      />
                     </div>
                     <div>
-                      <h3 className="font-semibold mb-1">
-                        Top Bowling Score
-                      </h3>
-                      <ol className="list-decimal list-inside space-y-1">
-                        {topBowlers.map((p) => (
-                          <li key={p.id}>
-                            {p.name} – {p.bowlingScore.toFixed(2)}
-                          </li>
-                        ))}
-                      </ol>
+                      <label className="block text-xs mb-1">
+                        CF1 (Wickets)
+                      </label>
+                      <input
+                        type="number"
+                        value={cfgDisplay.CF1 ?? ""}
+                        onChange={(e) =>
+                          handleConfigChange("CF1", e.target.value)
+                        }
+                        disabled={!isAdmin}
+                        className="w-full px-2 py-1 rounded bg-black/40 border border-emerald-300/60 disabled:opacity-60 outline-none focus:border-emerald-100"
+                      />
                     </div>
                     <div>
-                      <h3 className="font-semibold mb-1">
-                        Top All-Rounder Score
-                      </h3>
-                      <ol className="list-decimal list-inside space-y-1">
-                        {topAllRounders.map((p) => (
-                          <li key={p.id}>
-                            {p.name} – {p.allRounderScore.toFixed(2)}
-                          </li>
-                        ))}
-                      </ol>
+                      <label className="block text-xs mb-1">
+                        CF2 (Bowling)
+                      </label>
+                      <input
+                        type="number"
+                        value={cfgDisplay.CF2 ?? ""}
+                        onChange={(e) =>
+                          handleConfigChange("CF2", e.target.value)
+                        }
+                        disabled={!isAdmin}
+                        className="w-full px-2 py-1 rounded bg-black/40 border border-emerald-300/60 disabled:opacity-60 outline-none focus:border-emerald-100"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs mb-1">CF3 (AR)</label>
+                      <input
+                        type="number"
+                        value={cfgDisplay.CF3 ?? ""}
+                        onChange={(e) =>
+                          handleConfigChange("CF3", e.target.value)
+                        }
+                        disabled={!isAdmin}
+                        className="w-full px-2 py-1 rounded bg-black/40 border border-emerald-300/60 disabled:opacity-60 outline-none focus:border-emerald-100"
+                      />
                     </div>
                   </div>
-                )}
-              </div>
-            </section>
-          )}
-
-          {/* STEP 2: Auction */}
-          {view === "auction" && (
-            <>
-              <section className="bg-gray-900 rounded p-4 flex flex-col gap-3">
-                <div className="flex items-center justify-between text-sm mb-1">
-                  <div>
-                    <p>
-                      Set:{" "}
-                      <span className="font-semibold">
-                        {sets.length === 0 ? "-" : currentSetIndex + 1} /{" "}
-                        {sets.length || "-"}
-                      </span>
-                    </p>
-                    <p className="text-gray-400">
-                      Players left in this set:{" "}
-                      {playersLeftInSet < 0 ? 0 : playersLeftInSet}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
+                  <div className="mt-3 flex flex-wrap gap-2 items-center">
                     <button
-                      onClick={handleStartAuction}
-                      disabled={
-                        auction.status === "running" ||
-                        auction.status === "showing_result" ||
-                        !isAdmin
-                      }
-                      className="px-4 py-2 rounded text-xs bg-emerald-600 disabled:bg-gray-700 font-semibold"
+                      onClick={handleSaveConfig}
+                      disabled={savingConfig || !isAdmin}
+                      className="px-4 py-2 bg-emerald-300 text-black rounded disabled:bg-emerald-800 disabled:text-emerald-200 text-sm font-semibold transition-colors hover:bg-emerald-200"
                     >
-                      {auction.status === "running"
-                        ? "Auction running"
-                        : "Start auction (admin)"}
+                      {savingConfig ? "Saving..." : "Save config"}
                     </button>
                     <button
-                      onClick={handleNextPlayer}
-                      disabled={
-                        !isAdmin ||
-                        auction.currentBidLakhs != null ||
-                        auction.status === "showing_result"
-                      }
-                      className="px-4 py-2 rounded text-xs bg-blue-600 disabled:bg-gray-700 font-semibold"
+                      onClick={handleConfigNext}
+                      disabled={!isAdmin}
+                      className="px-4 py-2 bg-purple-400 text-black rounded text-sm disabled:bg-slate-700 font-semibold transition-colors hover:bg-purple-300"
                     >
-                      Next player (admin)
+                      Next: prepare auction
                     </button>
-                  </div>
-                </div>
-
-                <div className="grid md:grid-cols-3 gap-4">
-                  {/* Top-left: current player */}
-                  <div className="bg-black/40 rounded p-3">
-                    <h2 className="text-lg font-semibold mb-2">
-                      Current player
-                    </h2>
-                    {!currentAuctionPlayer ? (
-                      <p className="text-sm text-gray-400">
-                        No current player. Admin must generate sets and
-                        start auction.
+                    {!isAdmin && (
+                      <p className="text-xs text-emerald-50/80">
+                        Only the admin (first UID to create a team) can change
+                        factors and generate sets.
                       </p>
-                    ) : (
-                      <>
-                        <p className="text-2xl font-bold mb-1">
-                          {currentAuctionPlayer.name}
-                        </p>
-                        <p className="text-base mb-3">
-                          Base price:{" "}
-                          <span className="font-bold text-xl">
-                            {formatAmount(
-                              currentPlayerBasePriceLakhs,
-                              showInCrores
-                            )}
-                          </span>
-                        </p>
-                        <div className="grid grid-cols-2 gap-2 text-xs mt-2">
-                          <div>
-                            <p className="font-semibold mb-1">
-                              Batting stats
-                            </p>
-                            <p>
-                              Runs:{" "}
-                              {currentAuctionPlayer.batting.runs}
-                            </p>
-                            <p>
-                              Avg: {currentAuctionPlayer.batting.avg}
-                            </p>
-                            <p>
-                              SR: {currentAuctionPlayer.batting.sr}
-                            </p>
-                            <p>
-                              4s/6s:{" "}
-                              {currentAuctionPlayer.batting.fours}/
-                              {currentAuctionPlayer.batting.sixes}
-                            </p>
-                          </div>
-                          <div>
-                            <p className="font-semibold mb-1">
-                              Bowling stats
-                            </p>
-                            <p>
-                              Wkts:{" "}
-                              {currentAuctionPlayer.bowling.wickets}
-                            </p>
-                            <p>
-                              Avg: {currentAuctionPlayer.bowling.avg}
-                            </p>
-                            <p>
-                              Econ: {currentAuctionPlayer.bowling.econ}
-                            </p>
-                            <p>
-                              SR: {currentAuctionPlayer.bowling.sr}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                          <div className="bg-gray-800 rounded p-2">
-                            <p className="text-[10px] text-gray-400">
-                              Bat score
-                            </p>
-                            <p className="text-2xl font-bold">
-                              {currentAuctionPlayer.battingScore.toFixed(
-                                1
-                              )}
-                            </p>
-                          </div>
-                          <div className="bg-gray-800 rounded p-2">
-                            <p className="text-[10px] text-gray-400">
-                              Bowl score
-                            </p>
-                            <p className="text-2xl font-bold">
-                              {currentAuctionPlayer.bowlingScore.toFixed(
-                                1
-                              )}
-                            </p>
-                          </div>
-                          <div className="bg-gray-800 rounded p-2">
-                            <p className="text-[10px] text-gray-400">
-                              AR score
-                            </p>
-                            <p className="text-2xl font-bold">
-                              {currentAuctionPlayer.allRounderScore.toFixed(
-                                1
-                              )}
-                            </p>
-                          </div>
-                        </div>
-                      </>
                     )}
                   </div>
+                </div>
 
-                  {/* Top-middle: bidding + sit out + time bank */}
-                  <div className="bg-black/40 rounded p-3 flex flex-col justify-between relative">
-                    {auction.status === "showing_result" &&
-                      auction.resultMessage && (
-                        <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-10">
-                          <div className="bg-gray-900 border border-emerald-500 rounded px-4 py-3 text-center max-w-xs">
-                            <p className="text-sm font-semibold">
-                              {auction.resultMessage}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              Next player will start in a moment…
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                <div>
+                  <h2 className="text-lg font-semibold mb-3">
+                    Ranking preview (per room)
+                  </h2>
+                  {loadingSeason ? (
+                    <p className="text-sm text-emerald-50/80">
+                      Loading season players...
+                    </p>
+                  ) : scoredPlayers.length === 0 ? (
+                    <p className="text-sm text-emerald-50/80">
+                      No players loaded for this season. Import
+                      seasons/{cfgDisplay.season}/players.
+                    </p>
+                  ) : (
+                    <div className="grid md:grid-cols-3 gap-3 text-xs">
+                      <div className="bg-black/40 rounded-xl p-3 border border-emerald-300/40">
+                        <h3 className="font-semibold mb-1 text-emerald-100">
+                          Top Batting Score
+                        </h3>
+                        <ol className="list-decimal list-inside space-y-1">
+                          {topBatters.map((p) => (
+                            <li key={p.id}>
+                              {p.name} – {p.battingScore.toFixed(2)}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                      <div className="bg-black/40 rounded-xl p-3 border border-emerald-300/40">
+                        <h3 className="font-semibold mb-1 text-emerald-100">
+                          Top Bowling Score
+                        </h3>
+                        <ol className="list-decimal list-inside space-y-1">
+                          {topBowlers.map((p) => (
+                            <li key={p.id}>
+                              {p.name} – {p.bowlingScore.toFixed(2)}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                      <div className="bg-black/40 rounded-xl p-3 border border-emerald-300/40">
+                        <h3 className="font-semibold mb-1 text-emerald-100">
+                          Top All-Rounder Score
+                        </h3>
+                        <ol className="list-decimal list-inside space-y-1">
+                          {topAllRounders.map((p) => (
+                            <li key={p.id}>
+                              {p.name} – {p.allRounderScore.toFixed(2)}
+                            </li>
+                          ))}
+                        </ol>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+            )}
 
+            {/* STEP 2: Auction – same grids as before, recolored */}
+            {view === "auction" && (
+              <>
+                <section className="bg-slate-950/80 rounded p-4 flex flex-col gap-3 border border-emerald-400/40 shadow-[0_0_25px_rgba(16,185,129,0.4)] backdrop-blur">
+                  <div className="flex items-center justify-between text-sm mb-1">
                     <div>
-                      <h2 className="text-lg font-semibold mb-3">
-                        Bidding
+                      <p>
+                        Set:{" "}
+                        <span className="font-semibold">
+                          {sets.length === 0 ? "-" : currentSetIndex + 1} /{" "}
+                          {sets.length || "-"}
+                        </span>
+                      </p>
+                      <p className="text-gray-300">
+                        Players left in this set:{" "}
+                        {playersLeftInSet < 0 ? 0 : playersLeftInSet}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleStartAuction}
+                        disabled={
+                          auction.status === "running" ||
+                          auction.status === "showing_result" ||
+                          !isAdmin
+                        }
+                        className="px-4 py-2 rounded text-xs bg-emerald-300 text-black disabled:bg-slate-800 disabled:text-slate-400 font-semibold hover:bg-emerald-200 transition-colors"
+                      >
+                        {auction.status === "running"
+                          ? "Auction running"
+                          : "Start auction (admin)"}
+                      </button>
+                      <button
+                        onClick={handleNextPlayer}
+                        disabled={
+                          !isAdmin ||
+                          auction.currentBidLakhs != null ||
+                          auction.status === "showing_result"
+                        }
+                        className="px-4 py-2 rounded text-xs bg-sky-300 text-black disabled:bg-slate-800 disabled:text-slate-400 font-semibold hover:bg-sky-200 transition-colors"
+                      >
+                        Next player (admin)
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid md:grid-cols-3 gap-4">
+                    {/* Current player card */}
+                    <div className="bg-black/40 rounded p-3 border border-slate-700/70">
+                      <h2 className="text-lg font-semibold mb-2">
+                        Current player
                       </h2>
                       {!currentAuctionPlayer ? (
-                        <p className="text-sm text-gray-400">
-                          Waiting for a current player.
+                        <p className="text-sm text-gray-300">
+                          No current player. Admin must generate sets and
+                          start auction.
                         </p>
                       ) : (
                         <>
-                          <div className="flex items-center gap-4 mb-4">
-                            <div className="relative w-40 h-40">
-                              <div
-                                className="w-40 h-40 rounded-full flex items-center justify-center"
-                                style={timerRingStyle}
-                              >
-                                <button
-                                  className="w-32 h-32 rounded-full bg-blue-600 flex flex-col items-center justify-center text-sm md:text-base font-bold shadow-lg"
-                                  disabled={
-                                    auction.status !== "running" ||
-                                    !currentPlayerId ||
-                                    isMyTeamHighestBidder ||
-                                    isSatOutForCurrentPlayer ||
-                                    myTeamOutOfPurse
-                                  }
-                                  onClick={() => {
-                                    if (
-                                      auction.currentBidLakhs == null
-                                    ) {
-                                      handleStartBidding(
-                                        currentPlayerBasePriceLakhs,
-                                        currentPlayerId
-                                      );
-                                    } else {
-                                      handleRaiseBid(
-                                        50,
-                                        currentPlayerBasePriceLakhs,
-                                        currentPlayerId
-                                      );
-                                    }
-                                  }}
-                                >
-                                  <span className="text-[11px] uppercase">
-                                    {auction.currentBidLakhs == null
-                                      ? "Start bid"
-                                      : "Bid +0.5 Cr"}
-                                  </span>
-                                  <span className="text-lg">
-                                    {remainingSeconds == null
-                                      ? "--"
-                                      : `${remainingSeconds}s`}
-                                  </span>
-                                </button>
-                              </div>
+                          <p className="text-2xl font-bold mb-1">
+                            {currentAuctionPlayer.name}
+                          </p>
+                          <p className="text-base mb-3">
+                            Base price:{" "}
+                            <span className="font-bold text-xl text-emerald-300">
+                              {formatAmount(
+                                currentPlayerBasePriceLakhs,
+                                showInCrores
+                              )}
+                            </span>
+                          </p>
+                          <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+                            <div>
+                              <p className="font-semibold mb-1 text-emerald-200">
+                                Batting stats
+                              </p>
+                              <p>Runs: {currentAuctionPlayer.batting.runs}</p>
+                              <p>Avg: {currentAuctionPlayer.batting.avg}</p>
+                              <p>SR: {currentAuctionPlayer.batting.sr}</p>
+                              <p>
+                                4s/6s: {currentAuctionPlayer.batting.fours}/
+                                {currentAuctionPlayer.batting.sixes}
+                              </p>
                             </div>
-                            <div className="flex-1 text-sm">
-                              <div className="mb-3 border border-gray-700 rounded p-2 bg-gray-900">
-                                <p className="text-xs text-gray-400">
-                                  Current bid
-                                </p>
-                                <p className="text-2xl font-extrabold">
-                                  {formatAmount(
-                                    currentBidLakhs,
-                                    showInCrores
-                                  )}
-                                </p>
-                                {auction.currentBidTeamId &&
-                                  teams[auction.currentBidTeamId] && (
-                                    <p className="text-xs text-gray-300 mt-1">
-                                      Held by{" "}
-                                      <span className="font-semibold">
-                                        {
-                                          teams[
-                                            auction.currentBidTeamId
-                                          ].name
-                                        }
-                                      </span>
-                                    </p>
-                                  )}
-                              </div>
-
-                              <p className="text-xs text-gray-400 mb-2">
-                                Bids are in steps of 0.5 Cr; timer starts
-                                at 30s when player appears and resets per
-                                bid. Last 5s in red.
+                            <div>
+                              <p className="font-semibold mb-1 text-sky-200">
+                                Bowling stats
                               </p>
-                              {myTeamOutOfPurse && (
-                                <p className="text-xs text-red-400 mb-1">
-                                  You are out of purse and cannot bid for
-                                  the rest of this auction.
-                                </p>
-                              )}
-                              <div className="flex flex-wrap gap-3 text-xs mb-3">
-                                <button
-                                  onClick={() =>
-                                    handleRaiseBid(
-                                      100,
-                                      currentPlayerBasePriceLakhs,
-                                      currentPlayerId
-                                    )
-                                  }
-                                  disabled={!canBid || isSatOutForCurrentPlayer}
-                                  className="px-4 py-2 bg-emerald-700 rounded text-sm font-semibold disabled:bg-gray-700"
-                                >
-                                  +1 Cr
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    handleRaiseBid(
-                                      200,
-                                      currentPlayerBasePriceLakhs,
-                                      currentPlayerId
-                                    )
-                                  }
-                                  disabled={!canBid || isSatOutForCurrentPlayer}
-                                  className="px-4 py-2 bg-emerald-800 rounded text-sm font-semibold disabled:bg-gray-700"
-                                >
-                                  +2 Cr
-                                </button>
-                              </div>
-                              <div className="flex items-center gap-2 text-xs mb-3">
-                                <span className="text-[11px]">
-                                  Custom ({showInCrores ? "Cr" : "L"}):
-                                </span>
-                                <input
-                                  type="number"
-                                  className="w-24 px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm"
-                                  value={customBidInput}
-                                  onChange={(e) =>
-                                    setCustomBidInput(e.target.value)
-                                  }
-                                />
-                                <button
-                                  onClick={() =>
-                                    handlePlaceCustomBid(
-                                      customBidInput,
-                                      currentPlayerBasePriceLakhs,
-                                      currentPlayerId
-                                    )
-                                  }
-                                  disabled={!canBid || isSatOutForCurrentPlayer}
-                                  className="px-4 py-2 bg-blue-600 rounded text-sm font-semibold disabled:bg-gray-700"
-                                >
-                                  Place bid
-                                </button>
-                              </div>
-                              <div className="flex flex-wrap items-center gap-3 text-xs mb-2">
-                                <button
-  onClick={handleSitOut}
-  disabled={!canSitOut || isSatOutForCurrentPlayer}
-  className={`px-4 py-2 rounded text-sm font-semibold border ${
-    isSatOutForCurrentPlayer
-      ? "bg-red-700 border-red-400"
-      : "bg-gray-700 border-gray-500"
-  } ${!canSitOut ? "opacity-50 cursor-not-allowed" : ""}`}
->
-  {isSatOutForCurrentPlayer ? "Sitting out (locked)" : "Sit out this player"}
-</button>
-
-
-                                <button
-                                  onClick={handleUseTimeBank}
-                                  disabled={!canUseTimeBank}
-                                  className="px-4 py-2 bg-amber-600 rounded text-sm font-semibold disabled:bg-gray-900"
-                                >
-                                  Time bank +15s
-                                </button>
-                              </div>
-                              <p className="text-xs text-gray-300">
-                                Time bank left:{" "}
-                                {safeNum(
-                                  myTeam?.timeBankSeconds ?? 0
-                                )}{" "}
-                                s
+                              <p>
+                                Wkts: {currentAuctionPlayer.bowling.wickets}
                               </p>
-                              {isMyTeamHighestBidder && (
-                                <p className="text-xs text-emerald-400 mt-1">
-                                  You currently hold the highest bid for
-                                  this player.
-                                </p>
-                              )}
+                              <p>Avg: {currentAuctionPlayer.bowling.avg}</p>
+                              <p>Econ: {currentAuctionPlayer.bowling.econ}</p>
+                              <p>SR: {currentAuctionPlayer.bowling.sr}</p>
+                            </div>
+                          </div>
+                          <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+                            <div className="bg-slate-900/80 rounded p-2 border border-slate-700/80">
+                              <p className="text-[10px] text-gray-400">
+                                Bat score
+                              </p>
+                              <p className="text-2xl font-bold text-emerald-300">
+                                {currentAuctionPlayer.battingScore.toFixed(1)}
+                              </p>
+                            </div>
+                            <div className="bg-slate-900/80 rounded p-2 border border-slate-700/80">
+                              <p className="text-[10px] text-gray-400">
+                                Bowl score
+                              </p>
+                              <p className="text-2xl font-bold text-sky-300">
+                                {currentAuctionPlayer.bowlingScore.toFixed(1)}
+                              </p>
+                            </div>
+                            <div className="bg-slate-900/80 rounded p-2 border border-slate-700/80">
+                              <p className="text-[10px] text-gray-400">
+                                AR score
+                              </p>
+                              <p className="text-2xl font-bold text-purple-300">
+                                {currentAuctionPlayer.allRounderScore.toFixed(
+                                  1
+                                )}
+                              </p>
                             </div>
                           </div>
                         </>
                       )}
                     </div>
-                  </div>
 
-                  {/* Top-right: current set OR log */}
-                  <div className="bg-black/40 rounded p-3 flex flex-col">
-                    <div className="flex items-center justify-between mb-2">
-                      <h2 className="text-lg font-semibold">
-                        {topRightMode === "set"
-                          ? "This set"
-                          : "Auction log"}
-                      </h2>
-                      <div className="flex gap-1 text-xs">
-                        <button
-                          onClick={() => setTopRightMode("set")}
-                          className={`px-2 py-1 rounded ${
-                            topRightMode === "set"
-                              ? "bg-blue-600"
-                              : "bg-gray-800"
-                          }`}
-                        >
-                          Set
-                        </button>
-                        <button
-                          onClick={() => setTopRightMode("log")}
-                          className={`px-2 py-1 rounded ${
-                            topRightMode === "log"
-                              ? "bg-blue-600"
-                              : "bg-gray-800"
-                          }`}
-                        >
-                          Log
-                        </button>
-                      </div>
-                    </div>
-
-                    {topRightMode === "set" ? (
-                      currentSetPlayersDetailed.length === 0 ? (
-                        <p className="text-sm text-gray-400">
-                          No players in this set.
-                        </p>
-                      ) : (
-                        <div className="text-xs space-y-1 max-h-72 overflow-y-auto">
-                          {currentSetPlayersDetailed.map((p, idx) => {
-                            const dotColor =
-                              p.teamColor ||
-                              (p.status === "unsold"
-                                ? "#6B7280"
-                                : "#9CA3AF");
-                            return (
-                              <div
-                                key={p.id}
-                                className="border-b border-gray-800 pb-1"
-                              >
-                                <p className="font-semibold flex items-center gap-2">
-                                  <span
-                                    className="w-2 h-2 rounded-full"
-                                    style={{ backgroundColor: dotColor }}
-                                  />
-                                  <span
-                                    className={
-                                      idx === currentPlayerIndex
-                                        ? "underline"
-                                        : ""
-                                    }
-                                  >
-                                    {idx + 1}. {p.name}
-                                  </span>
-                                </p>
-                                <p className="text-gray-400">
-                                  Bat:{" "}
-                                  {p.battingScore?.toFixed(1) ?? "–"} ·
-                                  Bowl:{" "}
-                                  {p.bowlingScore?.toFixed(1) ?? "–"} · AR:{" "}
-                                  {p.allRounderScore?.toFixed(1) ?? "–"}
-                                </p>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )
-                    ) : logEntries.length === 0 ? (
-                      <p className="text-sm text-gray-400">
-                        No log entries yet. They appear as players are
-                        sold or go unsold.
-                      </p>
-                    ) : (
-                      <div className="text-xs space-y-1 max-h-48 overflow-y-auto">
-                        {logEntries.map(([id, entry]) => (
-                          <p
-                            key={id}
-                            className="text-gray-300 border-b border-gray-800 pb-1"
-                          >
-                            <span className="text-[10px] text-gray-500 mr-1">
-                              {new Date(entry.ts).toLocaleTimeString()}
-                            </span>
-                            {entry.message}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </section>
-
-              {/* Bottom thirds */}
-              <section className="grid md:grid-cols-3 gap-4 flex-1">
-                {/* Bottom-left: your players */}
-                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
-                  <h2 className="text-lg font-semibold mb-3">
-                    Your bought players
-                  </h2>
-                  {!myTeam ? (
-                    <p className="text-sm text-gray-400">
-                      Create a team to see your squad.
-                    </p>
-                  ) : !myTeam.playersBought ||
-                    Object.keys(myTeam.playersBought).length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      You have not bought any players yet.
-                    </p>
-                  ) : (
-                    <ul className="text-sm space-y-1 max-h-72 overflow-y-auto">
-                      {Object.entries(myTeam.playersBought).map(
-                        ([id, p]) => {
-                          const sp = scoredPlayers.find(
-                            (pl) => pl.id === id
-                          );
-                          return (
-                            <li
-                              key={id}
-                              className="flex flex-col border-b border-gray-800 pb-1"
-                            >
-                              <div className="flex justify-between gap-2">
-                                <span>{p.name}</span>
-                                <span className="text-gray-300">
-                                  {formatAmount(
-                                    p.priceLakhs,
-                                    showInCrores
-                                  )}
-                                </span>
-                              </div>
-                              {sp && (
-                                <p className="text-xs text-gray-400 mt-0.5">
-                                  Bat:{" "}
-                                  {sp.battingScore.toFixed(1)} · Bowl:{" "}
-                                  {sp.bowlingScore.toFixed(1)} · AR:{" "}
-                                  {sp.allRounderScore.toFixed(1)}
-                                </p>
-                              )}
-                            </li>
-                          );
-                        }
-                      )}
-                    </ul>
-                  )}
-                </aside>
-
-                {/* Bottom-middle: toggle between Teams / Sets */}
-                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
-                  <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-lg font-semibold">
-                      Teams
-                    </h2>
-                  </div>
-
-                  {Object.keys(teams).length === 0 ? (
-                    <p className="text-sm text-gray-400">
-                      No teams yet. Create one when prompted.
-                    </p>
-                  ) : (
-                    <div className="text-sm space-y-2 max-h-72 overflow-y-auto">
-                      {Object.entries(teams).map(([id, team]) => {
-                        const boughtCount = team.playersBought
-                          ? Object.keys(team.playersBought).length
-                          : 0;
-                        const isSelected = id === selectedTeamId;
-                        const outOfPurse = teamOutOfPurse(team);
-                        return (
-                          <button
-                            key={id}
-                            onClick={() => {
-                              setSelectedTeamId(id);
-                            }}
-                            className="w-full text-left border border-gray-800 rounded p-2 hover:border-gray-500"
-                            style={{
-                              borderColor: isSelected
-                                ? team.color
-                                : undefined,
-                              boxShadow: isSelected
-                                ? `0 0 0 1px ${team.color}`
-                                : undefined
-                            }}
-                          >
-                            <div className="flex items-center justify-between mb-1">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="w-3 h-3 rounded-full"
-                                  style={{
-                                    backgroundColor: team.color
-                                  }}
-                                />
-                                <p className="font-semibold">
-                                  {team.name}
-                                </p>
-                              </div>
-                              <p className="text-xs text-gray-400">
-                                Time bank:{" "}
-                                {safeNum(
-                                  team.timeBankSeconds ?? 0
-                                )}{" "}
-                                s
+                    {/* Bidding column – same controls, new styling */}
+                    <div className="bg-black/40 rounded p-3 flex flex-col justify-between relative border border-slate-700/70 overflow-hidden">
+                      {auction.status === "showing_result" &&
+                        auction.resultMessage && (
+                          <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-10">
+                            <div className="bg-slate-900 border border-emerald-500 rounded px-4 py-3 text-center max-w-xs shadow-[0_0_25px_rgba(16,185,129,0.6)]">
+                              <p className="text-sm font-semibold">
+                                {auction.resultMessage}
+                              </p>
+                              <p className="text-xs text-gray-300 mt-1">
+                                Next player will start in a moment…
                               </p>
                             </div>
-                            <p className="text-gray-300">
-                              Purse:{" "}
-                              {formatAmount(
-                                team.purseRemainingLakhs,
-                                showInCrores
-                              )}{" "}
-                              {outOfPurse && (
-                                <span className="text-xs text-red-400 ml-1">
-                                  (out of purse)
-                                </span>
-                              )}
-                            </p>
-                            <p className="text-xs text-gray-400">
-                              Players bought: {boughtCount}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
-                </aside>
-
-                {/* Bottom-right: team details */}
-                <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
-                  <h2 className="text-lg font-semibold mb-2">
-                    Team details
-                  </h2>
-                  {!selectedTeam ? (
-                    <p className="text-sm text-gray-400">
-                      Click a team in the middle to see details here.
-                    </p>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className="w-3 h-3 rounded-full"
-                            style={{
-                              backgroundColor: selectedTeam.color
-                            }}
-                          />
-                          <p className="font-semibold">
-                            {selectedTeam.name}
-                          </p>
-                        </div>
-                        <p className="text-xs text-gray-400">
-                          Time bank:{" "}
-                          {safeNum(
-                            selectedTeam.timeBankSeconds ?? 0
-                          )}{" "}
-                          s
-                        </p>
-                      </div>
-                      <p className="text-sm text-gray-300 mb-1">
-                        Purse:{" "}
-                        {formatAmount(
-                          selectedTeam.purseRemainingLakhs,
-                          showInCrores
+                          </div>
                         )}
-                      </p>
-                      <div className="border-t border-gray-800 pt-2 text-xs">
-                        <p className="font-semibold mb-1">
-                          Players bought
-                        </p>
-                        {selectedTeam.playersBought &&
-                        Object.keys(
-                          selectedTeam.playersBought
-                        ).length > 0 ? (
-                          <ul className="space-y-0.5 max-h-72 overflow-y-auto">
-                            {Object.entries(
-                              selectedTeam.playersBought
-                            ).map(([pid, p]) => {
-                              const sp = scoredPlayers.find(
-                                (pl) => pl.id === pid
-                              );
-                              return (
-                                <li
-                                  key={pid}
-                                  className="flex flex-col border-b border-gray-800 pb-1"
+
+                      <div>
+                        <h2 className="text-lg font-semibold mb-3">
+                          Bidding
+                        </h2>
+                        {!currentAuctionPlayer ? (
+                          <p className="text-sm text-gray-300">
+                            Waiting for a current player.
+                          </p>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-4 mb-4">
+                              <div className="relative w-40 h-40">
+                                <div
+                                  className="w-40 h-40 rounded-full flex items-center justify-center"
+                                  style={timerRingStyle}
                                 >
-                                  <div className="flex justify-between gap-2">
-                                    <span>{p.name}</span>
-                                    <span className="text-gray-300">
-                                      {formatAmount(
-                                        p.priceLakhs,
-                                        showInCrores
-                                      )}
+                                  <button
+                                    className="w-32 h-32 rounded-full bg-gradient-to-br from-blue-500 via-sky-500 to-emerald-400 flex flex-col items-center justify-center text-sm font-bold shadow-[0_15px_40px_rgba(56,189,248,0.7)] disabled:opacity-50 disabled:shadow-none"
+                                    disabled={
+                                      auction.status !== "running" ||
+                                      !currentPlayerId ||
+                                      isMyTeamHighestBidder ||
+                                      isSatOutForCurrentPlayer ||
+                                      myTeamOutOfPurse
+                                    }
+                                    onClick={() => {
+                                      if (
+                                        auction.currentBidLakhs == null
+                                      ) {
+                                        handleStartBidding(
+                                          currentPlayerBasePriceLakhs,
+                                          currentPlayerId
+                                        );
+                                      } else {
+                                        handleRaiseBid(
+                                          50,
+                                          currentPlayerBasePriceLakhs,
+                                          currentPlayerId
+                                        );
+                                      }
+                                    }}
+                                  >
+                                    <span className="text-[10px] uppercase tracking-wide">
+                                      {auction.currentBidLakhs == null
+                                        ? "Start bid"
+                                        : "Bid +0.5 Cr"}
                                     </span>
-                                  </div>
-                                  {sp && (
-                                    <p className="text-[11px] text-gray-400 mt-0.5">
-                                      Bat:{" "}
-                                      {sp.battingScore.toFixed(
-                                        1
-                                      )}{" "}
-                                      · Bowl:{" "}
-                                      {sp.bowlingScore.toFixed(
-                                        1
-                                      )}{" "}
-                                      · AR:{" "}
-                                      {sp.allRounderScore.toFixed(
-                                        1
-                                      )}
-                                    </p>
-                                  )}
-                                </li>
+                                    <span className="text-lg mt-0.5">
+                                      {remainingSeconds == null
+                                        ? "--"
+                                        : `${remainingSeconds}s`}
+                                    </span>
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="flex-1 text-sm">
+                                <div className="mb-3 border border-slate-700 rounded p-2 bg-slate-950/70">
+                                  <p className="text-xs text-gray-400">
+                                    Current bid
+                                  </p>
+                                  <p className="text-2xl font-extrabold text-emerald-300">
+                                    {formatAmount(
+                                      currentBidLakhs,
+                                      showInCrores
+                                    )}
+                                  </p>
+                                  {auction.currentBidTeamId &&
+                                    teams[auction.currentBidTeamId] && (
+                                      <p className="text-xs text-gray-300 mt-1">
+                                        Held by{" "}
+                                        <span className="font-semibold">
+                                          {
+                                            teams[
+                                              auction.currentBidTeamId
+                                            ].name
+                                          }
+                                        </span>
+                                      </p>
+                                    )}
+                                </div>
+
+                                <p className="text-xs text-gray-400 mb-2">
+                                  Bids are in steps of 0.5 Cr; timer starts
+                                  at 30s when player appears and resets per
+                                  bid. Last 5s in red.
+                                </p>
+                                {myTeamOutOfPurse && (
+                                  <p className="text-xs text-red-400 mb-1">
+                                    You are out of purse and cannot bid for
+                                    the rest of this auction.
+                                  </p>
+                                )}
+                                <div className="flex flex-wrap gap-3 text-xs mb-3">
+                                  <button
+                                    onClick={() =>
+                                      handleRaiseBid(
+                                        100,
+                                        currentPlayerBasePriceLakhs,
+                                        currentPlayerId
+                                      )
+                                    }
+                                    disabled={
+                                      !canBid || isSatOutForCurrentPlayer
+                                    }
+                                    className="px-4 py-2 bg-emerald-600 rounded text-sm font-semibold hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    +1 Cr
+                                  </button>
+                                  <button
+                                    onClick={() =>
+                                      handleRaiseBid(
+                                        200,
+                                        currentPlayerBasePriceLakhs,
+                                        currentPlayerId
+                                      )
+                                    }
+                                    disabled={
+                                      !canBid || isSatOutForCurrentPlayer
+                                    }
+                                    className="px-4 py-2 bg-emerald-700 rounded text-sm font-semibold hover:bg-emerald-600 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    +2 Cr
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs mb-3">
+                                  <span className="text-[11px]">
+                                    Custom ({showInCrores ? "Cr" : "L"}):
+                                  </span>
+                                  <input
+                                    type="number"
+                                    className="w-24 px-2 py-1 rounded bg-slate-900 border border-slate-700 text-sm outline-none focus:border-slate-300"
+                                    value={customBidInput}
+                                    onChange={(e) =>
+                                      setCustomBidInput(e.target.value)
+                                    }
+                                  />
+                                  <button
+                                    onClick={() =>
+                                      handlePlaceCustomBid(
+                                        customBidInput,
+                                        currentPlayerBasePriceLakhs,
+                                        currentPlayerId
+                                      )
+                                    }
+                                    disabled={
+                                      !canBid || isSatOutForCurrentPlayer
+                                    }
+                                    className="px-4 py-2 bg-sky-400 text-black rounded text-sm font-semibold hover:bg-sky-300 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    Place bid
+                                  </button>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-3 text-xs mb-2">
+                                  <button
+                                    onClick={handleSitOut}
+                                    disabled={
+                                      !canSitOut || isSatOutForCurrentPlayer
+                                    }
+                                    className={`px-4 py-2 rounded text-sm font-semibold border transition-all ${
+                                      isSatOutForCurrentPlayer
+                                        ? "bg-red-700 border-red-400 text-red-50"
+                                        : "bg-slate-800 border-slate-500 text-gray-100 hover:bg-slate-700"
+                                    } ${
+                                      !canSitOut
+                                        ? "opacity-50 cursor-not-allowed"
+                                        : ""
+                                    }`}
+                                  >
+                                    {isSatOutForCurrentPlayer
+                                      ? "Sitting out (locked)"
+                                      : "Sit out this player"}
+                                  </button>
+                                  <button
+                                    onClick={handleUseTimeBank}
+                                    disabled={!canUseTimeBank}
+                                    className="px-4 py-2 bg-amber-400 text-black rounded text-sm font-semibold hover:bg-amber-300 disabled:bg-slate-900 disabled:text-slate-500 disabled:cursor-not-allowed transition-colors"
+                                  >
+                                    Time bank +15s
+                                  </button>
+                                </div>
+                                <p className="text-xs text-gray-300">
+                                  Time bank left:{" "}
+                                  {safeNum(
+                                    myTeam?.timeBankSeconds ?? 0
+                                  )}{" "}
+                                  s
+                                </p>
+                                {isMyTeamHighestBidder && (
+                                  <p className="text-xs text-emerald-300 mt-1">
+                                    You currently hold the highest bid for
+                                    this player.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right column: set / log */}
+                    <div className="bg-black/40 rounded p-3 flex flex-col border border-slate-700/70">
+                      <div className="flex items-center justify-between mb-2">
+                        <h2 className="text-lg font-semibold">
+                          {topRightMode === "set" ? "This set" : "Auction log"}
+                        </h2>
+                        <div className="flex gap-1 text-xs">
+                          <button
+                            onClick={() => setTopRightMode("set")}
+                            className={`px-2 py-1 rounded ${
+                              topRightMode === "set"
+                                ? "bg-sky-300 text-black"
+                                : "bg-slate-800 text-gray-200 hover:bg-slate-700"
+                            } transition-colors`}
+                          >
+                            Set
+                          </button>
+                          <button
+                            onClick={() => setTopRightMode("log")}
+                            className={`px-2 py-1 rounded ${
+                              topRightMode === "log"
+                                ? "bg-sky-300 text-black"
+                                : "bg-slate-800 text-gray-200 hover:bg-slate-700"
+                            } transition-colors`}
+                          >
+                            Log
+                          </button>
+                        </div>
+                      </div>
+
+                      {topRightMode === "set" ? (
+                        currentSetPlayersDetailed.length === 0 ? (
+                          <p className="text-sm text-gray-300">
+                            No players in this set.
+                          </p>
+                        ) : (
+                          <div className="text-xs space-y-1 max-h-72 overflow-y-auto">
+                            {currentSetPlayersDetailed.map((p, idx) => {
+                              const dotColor =
+                                p.teamColor ||
+                                (p.status === "unsold"
+                                  ? "#6B7280"
+                                  : "#9CA3AF");
+                              return (
+                                <div
+                                  key={p.id}
+                                  className="border-b border-slate-800 pb-1"
+                                >
+                                  <p className="font-semibold flex items-center gap-2">
+                                    <span
+                                      className="w-2 h-2 rounded-full"
+                                      style={{ backgroundColor: dotColor }}
+                                    />
+                                    <span
+                                      className={
+                                        idx === currentPlayerIndex
+                                          ? "underline"
+                                          : ""
+                                      }
+                                    >
+                                      {idx + 1}. {p.name}
+                                    </span>
+                                  </p>
+                                  <p className="text-gray-400">
+                                    Bat:{" "}
+                                    {p.battingScore?.toFixed(1) ?? "–"} · Bowl:{" "}
+                                    {p.bowlingScore?.toFixed(1) ?? "–"} · AR:{" "}
+                                    {p.allRounderScore?.toFixed(1) ?? "–"}
+                                  </p>
+                                </div>
                               );
                             })}
-                          </ul>
-                        ) : (
-                          <p className="text-gray-500">
-                            No players bought yet.
-                          </p>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </aside>
-              </section>
-            </>
-          )}
-        </>
-      )}
-
-      {/* TAB: RESULTS */}
-      {tab === "results" && (
-        <section className="bg-gray-900 rounded p-4 flex flex-col gap-4">
-          <h2 className="text-lg font-semibold mb-2">
-            Auction results
-          </h2>
-
-          <div className="grid md:grid-cols-2 gap-4 text-sm">
-            {Object.entries(teams).map(([id, team]) => {
-              const bought = team.playersBought || {};
-              const totalPlayers = Object.keys(bought).length;
-              const totalSpentLakhs = Object.values(bought).reduce(
-                (sum, p) => sum + safeNum(p.priceLakhs),
-                0
-              );
-              return (
-                <div
-                  key={id}
-                  className="border border-gray-800 rounded p-3"
-                  style={{ borderColor: team.color }}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: team.color }}
-                      />
-                      <span className="font-semibold">
-                        {team.name}
-                      </span>
+                          </div>
+                        )
+                      ) : logEntries.length === 0 ? (
+                        <p className="text-sm text-gray-300">
+                          No log entries yet. They appear as players are
+                          sold or go unsold.
+                        </p>
+                      ) : (
+                        <div className="text-xs space-y-1 max-h-48 overflow-y-auto">
+                          {logEntries.map(([id, entry]) => (
+                            <p
+                              key={id}
+                              className="text-gray-200 border-b border-slate-800 pb-1"
+                            >
+                              <span className="text-[10px] text-gray-500 mr-1">
+                                {new Date(entry.ts).toLocaleTimeString()}
+                              </span>
+                              {entry.message}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <span className="text-xs text-gray-400">
-                      Players: {totalPlayers}
-                    </span>
                   </div>
-                  <p className="text-xs text-gray-300">
-                    Spent:{" "}
-                    {formatAmount(totalSpentLakhs, showInCrores)}
-                  </p>
-                  <p className="text-xs text-gray-300">
-                    Purse left:{" "}
-                    {formatAmount(
-                      team.purseRemainingLakhs,
-                      showInCrores
-                    )}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
+                </section>
 
-          <div>
-            <h3 className="text-md font-semibold mb-2">
-              All sold players
-            </h3>
-            <div className="max-h-80 overflow-y-auto text-xs">
-              <table className="w-full border-collapse">
-                <thead className="bg-gray-800">
-                  <tr>
-                    <th className="p-2 text-left">Player</th>
-                    <th className="p-2 text-left">Team</th>
-                    <th className="p-2 text-right">Price</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allSoldPlayers.map(([pid, p]) => {
-                    const team =
-                      p.soldToTeamId && teams[p.soldToTeamId]
-                        ? teams[p.soldToTeamId]
-                        : undefined;
-                    return (
-                      <tr
-                        key={pid}
-                        className="border-t border-gray-800"
-                      >
-                        <td className="p-2">{p.name}</td>
-                        <td className="p-2">
-                          {team ? (
-                            <span className="inline-flex items-center gap-2">
-                              <span
-                                className="w-2 h-2 rounded-full"
-                                style={{ backgroundColor: team.color }}
-                              />
-                              {team.name}
-                            </span>
-                          ) : (
-                            "Unknown"
-                          )}
-                        </td>
-                        <td className="p-2 text-right">
+                {/* Bottom thirds – same grid as before */}
+                <section className="grid md:grid-cols-3 gap-4 flex-1">
+                  {/* Your bought players */}
+                  <aside className="bg-slate-950/80 rounded p-4 overflow-y-auto border border-slate-700/70">
+                    <h2 className="text-lg font-semibold mb-3">
+                      Your bought players
+                    </h2>
+                    {!myTeam ? (
+                      <p className="text-sm text-gray-300">
+                        Create a team to see your squad.
+                      </p>
+                    ) : !myTeam.playersBought ||
+                      Object.keys(myTeam.playersBought).length === 0 ? (
+                      <p className="text-sm text-gray-300">
+                        You have not bought any players yet.
+                      </p>
+                    ) : (
+                      <ul className="text-sm space-y-1 max-h-72 overflow-y-auto">
+                        {Object.entries(myTeam.playersBought).map(
+                          ([id, p]) => {
+                            const sp = scoredPlayers.find(
+                              (pl) => pl.id === id
+                            );
+                            return (
+                              <li
+                                key={id}
+                                className="flex flex-col border-b border-slate-800 pb-1"
+                              >
+                                <div className="flex justify-between gap-2">
+                                  <span>{p.name}</span>
+                                  <span className="text-gray-200">
+                                    {formatAmount(
+                                      p.priceLakhs,
+                                      showInCrores
+                                    )}
+                                  </span>
+                                </div>
+                                {sp && (
+                                  <p className="text-xs text-gray-400 mt-0.5">
+                                    Bat: {sp.battingScore.toFixed(1)} · Bowl:{" "}
+                                    {sp.bowlingScore.toFixed(1)} · AR:{" "}
+                                    {sp.allRounderScore.toFixed(1)}
+                                  </p>
+                                )}
+                              </li>
+                            );
+                          }
+                        )}
+                      </ul>
+                    )}
+                  </aside>
+
+                  {/* Teams list */}
+                  <aside className="bg-slate-950/80 rounded p-4 overflow-y-auto border border-slate-700/70">
+                    <div className="flex items-center justify-between mb-2">
+                      <h2 className="text-lg font-semibold">Teams</h2>
+                    </div>
+
+                    {Object.keys(teams).length === 0 ? (
+                      <p className="text-sm text-gray-300">
+                        No teams yet. Create one when prompted.
+                      </p>
+                    ) : (
+                      <div className="text-sm space-y-2 max-h-72 overflow-y-auto">
+                        {Object.entries(teams).map(([id, team]) => {
+                          const boughtCount = team.playersBought
+                            ? Object.keys(team.playersBought).length
+                            : 0;
+                          const isSelected = id === selectedTeamId;
+                          const outOfPurse = teamOutOfPurse(team);
+                          return (
+                            <button
+                              key={id}
+                              onClick={() => {
+                                setSelectedTeamId(id);
+                              }}
+                              className="w-full text-left border border-slate-800 rounded p-2 hover:border-slate-400 bg-slate-950/60 transition-shadow"
+                              style={{
+                                borderColor: isSelected
+                                  ? team.color
+                                  : undefined,
+                                boxShadow: isSelected
+                                  ? `0 0 0 1px ${team.color}`
+                                  : undefined
+                              }}
+                            >
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className="w-3 h-3 rounded-full"
+                                    style={{
+                                      backgroundColor: team.color
+                                    }}
+                                  />
+                                  <p className="font-semibold">
+                                    {team.name}
+                                  </p>
+                                </div>
+                                <p className="text-xs text-gray-400">
+                                  Time bank:{" "}
+                                  {safeNum(
+                                    team.timeBankSeconds ?? 0
+                                  )}{" "}
+                                  s
+                                </p>
+                              </div>
+                              <p className="text-gray-200">
+                                Purse:{" "}
+                                {formatAmount(
+                                  team.purseRemainingLakhs,
+                                  showInCrores
+                                )}{" "}
+                                {outOfPurse && (
+                                  <span className="text-xs text-red-400 ml-1">
+                                    (out of purse)
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-gray-400">
+                                Players bought: {boughtCount}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </aside>
+
+                  {/* Team details */}
+                  <aside className="bg-slate-950/80 rounded p-4 overflow-y-auto border border-slate-700/70">
+                    <h2 className="text-lg font-semibold mb-2">
+                      Team details
+                    </h2>
+                    {!selectedTeam ? (
+                      <p className="text-sm text-gray-300">
+                        Click a team in the middle to see details here.
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-3 h-3 rounded-full"
+                              style={{
+                                backgroundColor: selectedTeam.color
+                              }}
+                            />
+                            <p className="font-semibold">
+                              {selectedTeam.name}
+                            </p>
+                          </div>
+                          <p className="text-xs text-gray-400">
+                            Time bank:{" "}
+                            {safeNum(selectedTeam.timeBankSeconds ?? 0)} s
+                          </p>
+                        </div>
+                        <p className="text-sm text-gray-200 mb-1">
+                          Purse:{" "}
                           {formatAmount(
-                            p.soldPriceLakhs,
+                            selectedTeam.purseRemainingLakhs,
                             showInCrores
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {allSoldPlayers.length === 0 && (
-                <p className="text-xs text-gray-400 mt-2">
-                  No players were sold in this auction.
+                        </p>
+                        <div className="border-t border-slate-800 pt-2 text-xs">
+                          <p className="font-semibold mb-1">
+                            Players bought
+                          </p>
+                          {selectedTeam.playersBought &&
+                          Object.keys(
+                            selectedTeam.playersBought
+                          ).length > 0 ? (
+                            <ul className="space-y-0.5 max-h-72 overflow-y-auto">
+                              {Object.entries(
+                                selectedTeam.playersBought
+                              ).map(([pid, p]) => {
+                                const sp = scoredPlayers.find(
+                                  (pl) => pl.id === pid
+                                );
+                                return (
+                                  <li
+                                    key={pid}
+                                    className="flex flex-col border-b border-slate-800 pb-1"
+                                  >
+                                    <div className="flex justify-between gap-2">
+                                      <span>{p.name}</span>
+                                      <span className="text-gray-200">
+                                        {formatAmount(
+                                          p.priceLakhs,
+                                          showInCrores
+                                        )}
+                                      </span>
+                                    </div>
+                                    {sp && (
+                                      <p className="text-[11px] text-gray-400 mt-0.5">
+                                        Bat:{" "}
+                                        {sp.battingScore.toFixed(1)} · Bowl:{" "}
+                                        {sp.bowlingScore.toFixed(1)} · AR:{" "}
+                                        {sp.allRounderScore.toFixed(1)}
+                                      </p>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          ) : (
+                            <p className="text-gray-500">
+                              No players bought yet.
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </aside>
+                </section>
+              </>
+            )}
+          </>
+        )}
+
+        {/* TAB: RESULTS – same structure */}
+        {tab === "results" && (
+          <section className="bg-slate-950/80 rounded p-4 flex flex-col gap-4 border border-slate-700/80 backdrop-blur shadow-[0_0_35px_rgba(15,23,42,0.9)]">
+            <h2 className="text-lg font-semibold mb-2">
+              Auction results
+            </h2>
+
+            <div className="grid md:grid-cols-2 gap-4 text-sm">
+              {Object.entries(teams).map(([id, team]) => {
+                const bought = team.playersBought || {};
+                const totalPlayers = Object.keys(bought).length;
+                const totalSpentLakhs = Object.values(bought).reduce(
+                  (sum, p) => sum + safeNum(p.priceLakhs),
+                  0
+                );
+                return (
+                  <div
+                    key={id}
+                    className="border border-slate-700 rounded p-3 bg-black/40"
+                    style={{ borderColor: team.color }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: team.color }}
+                        />
+                        <span className="font-semibold">
+                          {team.name}
+                        </span>
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        Players: {totalPlayers}
+                      </span>
+                    </div>
+                    <p className="text-xs text-gray-200">
+                      Spent:{" "}
+                      {formatAmount(totalSpentLakhs, showInCrores)}
+                    </p>
+                    <p className="text-xs text-gray-200">
+                      Purse left:{" "}
+                      {formatAmount(
+                        team.purseRemainingLakhs,
+                        showInCrores
+                      )}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div>
+              <h3 className="text-md font-semibold mb-2">
+                All sold players
+              </h3>
+              <div className="max-h-80 overflow-y-auto text-xs rounded border border-slate-800 bg-black/40">
+                <table className="w-full border-collapse">
+                  <thead className="bg-slate-900/80">
+                    <tr>
+                      <th className="p-2 text-left font-semibold text-gray-200">
+                        Player
+                      </th>
+                      <th className="p-2 text-left font-semibold text-gray-200">
+                        Team
+                      </th>
+                      <th className="p-2 text-right font-semibold text-gray-200">
+                        Price
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allSoldPlayers.map(([pid, p]) => {
+                      const team =
+                        p.soldToTeamId && teams[p.soldToTeamId]
+                          ? teams[p.soldToTeamId]
+                          : undefined;
+                      return (
+                        <tr
+                          key={pid}
+                          className="border-t border-slate-800"
+                        >
+                          <td className="p-2 text-gray-100">
+                            {p.name}
+                          </td>
+                          <td className="p-2 text-gray-100">
+                            {team ? (
+                              <span className="inline-flex items-center gap-2">
+                                <span
+                                  className="w-2 h-2 rounded-full"
+                                  style={{ backgroundColor: team.color }}
+                                />
+                                {team.name}
+                              </span>
+                            ) : (
+                              "Unknown"
+                            )}
+                          </td>
+                          <td className="p-2 text-right text-gray-100">
+                            {formatAmount(
+                              p.soldPriceLakhs,
+                              showInCrores
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {allSoldPlayers.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-2 px-3 pb-3">
+                    No players were sold in this auction.
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* Team creation modal */}
+        {showTeamModal && (
+          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+            <div className="bg-slate-950/95 border border-slate-700 rounded-2xl p-5 w-full max-w-sm shadow-[0_0_40px_rgba(15,23,42,1)] backdrop-blur">
+              <h2 className="text-lg font-semibold mb-2">
+                Create your team
+              </h2>
+              <p className="text-xs text-gray-300 mb-3">
+                Enter a unique team name for this room. A random team colour
+                and starting purse will be assigned to you. The first UID to
+                create a team becomes the auction admin.
+              </p>
+              <input
+                type="text"
+                value={teamNameInput}
+                onChange={(e) => setTeamNameInput(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-slate-900 border border-slate-700 text-sm outline-none focus:border-emerald-300"
+                placeholder="e.g. Bengaluru Blasters"
+              />
+              {teamModalError && (
+                <p className="text-xs text-red-400 mt-2">
+                  {teamModalError}
                 </p>
               )}
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => {
+                    if (!localTeamId) return;
+                    setShowTeamModal(false);
+                  }}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-slate-900 border border-slate-700 text-gray-100 hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateTeam}
+                  disabled={creatingTeam}
+                  className="px-3 py-1.5 text-xs rounded-lg bg-emerald-300 text-black font-semibold hover:bg-emerald-200 disabled:bg-emerald-800 disabled:text-emerald-200 disabled:cursor-not-allowed transition-colors"
+                >
+                  {creatingTeam ? "Creating..." : "Create team"}
+                </button>
+              </div>
             </div>
           </div>
-        </section>
-      )}
-
-      {/* Team creation modal */}
-      {showTeamModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-          <div className="bg-gray-900 border border-gray-700 rounded p-4 w-full max-w-sm">
-            <h2 className="text-lg font-semibold mb-2">
-              Create your team
-            </h2>
-            <p className="text-xs text-gray-400 mb-3">
-              Enter a unique team name for this room. A random team colour
-              and starting purse will be assigned to you. The first UID to
-              create a team becomes the auction admin.
-            </p>
-            <input
-              type="text"
-              value={teamNameInput}
-              onChange={(e) => setTeamNameInput(e.target.value)}
-              className="w-full px-2 py-1 rounded bg-gray-800 border border-gray-700 text-sm mb-2"
-              placeholder="e.g. Bengaluru Blasters"
-            />
-            {teamModalError && (
-              <p className="text-xs text-red-400 mb-2">
-                {teamModalError}
-              </p>
-            )}
-            <div className="flex justify-end gap-2 mt-1">
-              <button
-                onClick={() => {
-                  if (!localTeamId) return;
-                  setShowTeamModal(false);
-                }}
-                className="px-3 py-1 text-xs rounded bg-gray-800 border border-gray-700"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateTeam}
-                disabled={creatingTeam}
-                className="px-3 py-1 text-xs rounded bg-green-600 disabled:bg-gray-600"
-              >
-                {creatingTeam ? "Creating..." : "Create team"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
     </main>
   );
 }

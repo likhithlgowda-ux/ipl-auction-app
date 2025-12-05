@@ -382,24 +382,30 @@ export default function TeamSetupPage() {
   // ---------- Guards ----------
   if (loading || !room) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p>Loading team setup...</p>
+      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-white flex items-center justify-center">
+        <p className="text-sm text-gray-300">
+          Loading team setup...
+        </p>
       </main>
     );
   }
 
   if (!room.teams || Object.keys(room.teams).length === 0) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p>No teams found in this room yet.</p>
+      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-white flex items-center justify-center">
+        <p className="text-sm text-gray-300">
+          No teams found in this room yet.
+        </p>
       </main>
     );
   }
 
   if (!effectiveTeamId || !localTeam) {
     return (
-      <main className="min-h-screen bg-black text-white flex items-center justify-center">
-        <p>Could not determine your team for this room.</p>
+      <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-white flex items-center justify-center">
+        <p className="text-sm text-gray-300">
+          Could not determine your team for this room.
+        </p>
       </main>
     );
   }
@@ -431,17 +437,23 @@ export default function TeamSetupPage() {
         : "Bowlers";
 
     return (
-      <div className={`rounded p-2 mb-3 ${colorClass}`}>
-        <p className="text-sm font-semibold mb-1">{title}</p>
-        <div className="grid grid-cols-3 gap-2">
+      <div
+        className={`rounded-2xl p-3 md:p-4 mb-4 border border-white/10 bg-gradient-to-r ${colorClass}`}
+      >
+        <p className="text-sm font-semibold mb-2 tracking-wide">
+          {title}
+        </p>
+        <div className="grid grid-cols-3 gap-3">
           {slots.map((pid, idx) => {
             const sp = pid ? scoreMap[pid] : undefined;
             return (
               <div
                 key={idx}
-                className={`border border-gray-700 rounded p-2 text-xs min-h-[60px] flex flex-col justify-between ${
-                  !pid ? "bg-black/40" : "bg-black/70"
-                }`}
+                className={`rounded-xl border border-white/10 text-xs md:text-sm min-h-[80px] md:min-h-[96px] flex flex-col justify-between px-3 py-2 md:px-3.5 md:py-3 transition-colors ${
+                  !pid
+                    ? "bg-white/5 hover:bg-white/10"
+                    : "bg-black/60 hover:bg-black/70"
+                } ${!finalized ? "cursor-pointer" : "cursor-default"}`}
                 onClick={() => {
                   if (finalized) return;
                   if (selectedPlayerId) {
@@ -455,12 +467,12 @@ export default function TeamSetupPage() {
                 }}
               >
                 <div className="flex justify-between items-start gap-1">
-                  <span className="font-semibold text-[11px]">
+                  <span className="font-semibold text-[11px] md:text-xs uppercase tracking-wide text-gray-200">
                     Slot {idx + 1}
                   </span>
                   {pid && !finalized && (
                     <button
-                      className="text-[10px] text-red-400"
+                      className="text-[10px] md:text-xs text-red-400 hover:text-red-300"
                       onClick={(e) => {
                         e.stopPropagation();
                         void handleAssignToSlot(
@@ -475,18 +487,18 @@ export default function TeamSetupPage() {
                   )}
                 </div>
                 {pid && sp ? (
-                  <div className="mt-1">
-                    <p className="text-[11px] font-semibold truncate">
+                  <div className="mt-2">
+                    <p className="text-[11px] md:text-sm font-semibold truncate">
                       {sp.name}
                     </p>
-                    <p className="text-[10px] text-gray-300">
+                    <p className="text-[10px] md:text-[11px] text-gray-300 mt-0.5">
                       Bat {sp.battingScore.toFixed(1)} · AR{" "}
                       {sp.allRounderScore.toFixed(1)} · Bowl{" "}
                       {sp.bowlingScore.toFixed(1)}
                     </p>
                   </div>
                 ) : (
-                  <p className="text-[11px] text-gray-500 mt-1">
+                  <p className="text-[11px] md:text-xs text-gray-500 mt-1 leading-snug">
                     {`Click a ${
                       role === "BAT"
                         ? "batsman"
@@ -506,126 +518,147 @@ export default function TeamSetupPage() {
 
   // ---------- UI ----------
   return (
-    <main className="min-h-screen bg-black text-white p-4 flex flex-col gap-4">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold">
-            Team structuring – Room {displayRoomId}
-          </h1>
-          <p className="text-sm text-gray-400 mt-1">
-            Arrange your slots; you must use all players you bought, up
-            to 15.
-          </p>
-          <p className="text-sm mt-1">
-            You are:{" "}
-            <span
-              className="font-semibold px-2 py-0.5 rounded"
-              style={{ backgroundColor: localTeam.color }}
-            >
-              {localTeam.name}
-            </span>
-          </p>
-        </div>
-        <div className="text-right text-xs text-gray-400">
-          <p>Season: {room.config?.season ?? "unknown"}</p>
-          <p className="mt-1">
-            Players bought: {boughtCount}, required slots:{" "}
-            {requiredSlots}
-          </p>
-          {finalized && (
-            <p className="mt-1 text-emerald-400">
-              You have finalized your team. Waiting for other teams...
+    <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-white px-4 py-6 md:px-6 lg:px-8">
+      <div className="max-w-6xl mx-auto flex flex-col gap-5">
+        <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight">
+              Team structuring – Room{" "}
+              <span className="font-mono text-blue-400">
+                {displayRoomId}
+              </span>
+            </h1>
+            <p className="text-sm text-gray-400 mt-1 max-w-xl">
+              Arrange your playing slots. You must use all players you
+              bought, up to 15, before finalizing your team.
             </p>
-          )}
-        </div>
-      </header>
+            <p className="text-sm mt-2 flex items-center gap-2">
+              <span className="text-gray-300">You are:</span>
+              <span
+                className="font-semibold px-3 py-1 rounded-full text-sm shadow-sm"
+                style={{ backgroundColor: localTeam.color }}
+              >
+                {localTeam.name}
+              </span>
+            </p>
+          </div>
+          <div className="text-right text-xs md:text-sm text-gray-400 space-y-1">
+            <p>
+              Season:{" "}
+              <span className="font-mono">
+                {room.config?.season ?? "unknown"}
+              </span>
+            </p>
+            <p>
+              Players bought:{" "}
+              <span className="font-semibold">{boughtCount}</span>,{" "}
+              required slots:{" "}
+              <span className="font-semibold">{requiredSlots}</span>
+            </p>
+            {finalized && (
+              <p className="text-emerald-400 text-xs md:text-sm">
+                You have finalized your team. Waiting for other teams...
+              </p>
+            )}
+          </div>
+        </header>
 
-      <section className="grid md:grid-cols-2 gap-4 flex-1">
-        {/* Left: bought players */}
-        <aside className="bg-gray-900 rounded p-4 overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-2">
-            Your bought players
-          </h2>
-          {myBoughtPlayers.length === 0 ? (
-            <p className="text-sm text-gray-400">
-              You did not buy any players in the auction.
-            </p>
-          ) : (
-            <ul className="text-xs space-y-1 max-h-[70vh] overflow-y-auto">
-              {myBoughtPlayers.map((p) => (
-                <li
-                  key={p.id}
-                  className={`border border-gray-800 rounded p-2 flex flex-col gap-0.5 ${
-                    p.alreadyAssigned
-                      ? "opacity-60"
-                      : "cursor-pointer"
-                  } ${
-                    selectedPlayerId === p.id
-                      ? "ring-2 ring-blue-500"
-                      : ""
-                  }`}
-                  onClick={() => {
-                    if (finalized || p.alreadyAssigned) return;
-                    setSelectedPlayerId(
-                      selectedPlayerId === p.id ? null : p.id
-                    );
-                  }}
-                >
-                  <div className="flex justify-between">
-                    <span className="font-semibold truncate">
-                      {p.name}
-                    </span>
-                    <span className="text-gray-300">
-                      {(p.priceLakhs / 100).toFixed(2)} Cr
-                    </span>
-                  </div>
-                  <p className="text-[10px] text-gray-300">
-                    Bat {p.battingScore.toFixed(1)} · AR{" "}
-                    {p.allRounderScore.toFixed(1)} · Bowl{" "}
-                    {p.bowlingScore.toFixed(1)}
-                  </p>
-                  {p.alreadyAssigned && (
-                    <p className="text-[10px] text-amber-400">
-                      Already placed in a slot
+        <section className="grid md:grid-cols-2 gap-4 lg:gap-6 flex-1">
+          {/* Left: bought players */}
+          <aside className="rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 shadow-lg p-4 md:p-5 overflow-hidden flex flex-col">
+            <h2 className="text-lg font-semibold mb-3">
+              Your bought players
+            </h2>
+            {myBoughtPlayers.length === 0 ? (
+              <p className="text-sm text-gray-400">
+                You did not buy any players in the auction.
+              </p>
+            ) : (
+              <ul className="text-sm space-y-2 max-h-[70vh] overflow-y-auto pr-1">
+                {myBoughtPlayers.map((p) => (
+                  <li
+                    key={p.id}
+                    className={`rounded-xl border border-white/10 px-3.5 py-2.5 flex flex-col gap-1 bg-black/60 hover:bg-black/70 transition-colors ${
+                      p.alreadyAssigned
+                        ? "opacity-60 cursor-default"
+                        : "cursor-pointer"
+                    } ${
+                      selectedPlayerId === p.id
+                        ? "ring-2 ring-blue-500"
+                        : ""
+                    }`}
+                    onClick={() => {
+                      if (finalized || p.alreadyAssigned) return;
+                      setSelectedPlayerId(
+                        selectedPlayerId === p.id ? null : p.id
+                      );
+                    }}
+                  >
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="font-semibold truncate">
+                        {p.name}
+                      </span>
+                      <span className="text-xs text-gray-200">
+                        {(p.priceLakhs / 100).toFixed(2)} Cr
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-300">
+                      Bat {p.battingScore.toFixed(1)} · AR{" "}
+                      {p.allRounderScore.toFixed(1)} · Bowl{" "}
+                      {p.bowlingScore.toFixed(1)}
                     </p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </aside>
+                    {p.alreadyAssigned && (
+                      <p className="text-[11px] text-amber-400">
+                        Already placed in a slot
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </aside>
 
-        {/* Right: slots */}
-        <section className="bg-gray-900 rounded p-4 flex flex-col">
-          <h2 className="text-lg font-semibold mb-2">
-            Your playing slots
-          </h2>
-          <p className="text-xs text-gray-400 mb-3">
-            Click a player on the left to select, then click a slot to
-            assign. Use the{" "}
-            <span className="font-semibold">clear</span> button on a
-            slot to unassign. You must place all the players you bought
-            (up to 15).
-          </p>
-          <div className="flex-1 overflow-y-auto">
-            {renderSlotRow("BAT", "bg-blue-950/40")}
-            {renderSlotRow("AR", "bg-emerald-950/40")}
-            {renderSlotRow("BOWL", "bg-purple-950/40")}
-          </div>
-          <div className="mt-3 flex items-center justify-between text-xs">
-            <p className="text-gray-400">
-              Filled slots: {totalFilledSlots}/{requiredSlots}
+          {/* Right: slots */}
+          <section className="rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 shadow-lg p-4 md:p-5 flex flex-col">
+            <h2 className="text-lg font-semibold mb-2">
+              Your playing slots
+            </h2>
+            <p className="text-xs md:text-sm text-gray-400 mb-4">
+              Click a player on the left to select, then click a slot to
+              assign. Use the{" "}
+              <span className="font-semibold">clear</span> button on a
+              slot to unassign. You must place all the players you bought
+              (up to 15).
             </p>
-            <button
-              onClick={handleFinalize}
-              disabled={finalized}
-              className="px-4 py-2 bg-emerald-600 rounded text-sm font-semibold disabled:bg-gray-700"
-            >
-              {finalized ? "Team finalized" : "Finalize team"}
-            </button>
-          </div>
+            <div className="flex-1 overflow-y-auto pr-1">
+              {renderSlotRow("BAT", "from-sky-950/40 via-sky-900/20 to-sky-950/40")}
+              {renderSlotRow(
+                "AR",
+                "from-emerald-950/40 via-emerald-900/20 to-emerald-950/40"
+              )}
+              {renderSlotRow(
+                "BOWL",
+                "from-purple-950/40 via-purple-900/20 to-purple-950/40"
+              )}
+            </div>
+            <div className="mt-4 flex items-center justify-between text-xs md:text-sm">
+              <p className="text-gray-300">
+                Filled slots:{" "}
+                <span className="font-semibold">
+                  {totalFilledSlots}/{requiredSlots}
+                </span>
+              </p>
+              <button
+                onClick={handleFinalize}
+                disabled={finalized}
+                className="px-4 md:px-5 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold disabled:bg-gray-700 disabled:text-gray-300 transition-colors shadow-md"
+              >
+                {finalized ? "Team finalized" : "Finalize team"}
+              </button>
+            </div>
+          </section>
         </section>
-      </section>
+      </div>
     </main>
   );
 }
