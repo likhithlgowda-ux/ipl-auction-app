@@ -121,6 +121,9 @@ export default function LeaderboardPage() {
   const [seasonPlayers, setSeasonPlayers] =
     useState<Record<string, SeasonPlayer>>({});
   const [loading, setLoading] = useState(true);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(
+    null
+  );
 
   // ----- subscribe to room + layouts -----
   useEffect(() => {
@@ -189,7 +192,7 @@ export default function LeaderboardPage() {
         id,
         battingScore,
         bowlingScore,
-        allRounderScore
+        allRounderScore,
       };
     });
     return map;
@@ -208,20 +211,32 @@ export default function LeaderboardPage() {
       const AR = normalizeSlotList(layout.slots.AR);
       const BOWL = normalizeSlotList(layout.slots.BOWL);
 
-      const playerIds = [...BAT, ...AR, ...BOWL].filter(Boolean) as string[];
-
+      // Role-based team total
       let totalScore = 0;
-      playerIds.forEach((pid) => {
+
+      BAT.forEach((pid) => {
+        if (!pid) return;
         const sp = scoredPlayers[pid];
-        if (!sp) return;
-        totalScore += sp.allRounderScore;
+        if (sp) totalScore += sp.battingScore;
+      });
+
+      BOWL.forEach((pid) => {
+        if (!pid) return;
+        const sp = scoredPlayers[pid];
+        if (sp) totalScore += sp.bowlingScore;
+      });
+
+      AR.forEach((pid) => {
+        if (!pid) return;
+        const sp = scoredPlayers[pid];
+        if (sp) totalScore += sp.allRounderScore;
       });
 
       rows.push({
         id: teamId,
         name: team.name,
         color: team.color,
-        totalScore
+        totalScore,
       });
 
       if (team.playersBought) {
@@ -229,8 +244,7 @@ export default function LeaderboardPage() {
           const sp = scoredPlayers[pid];
           const score = sp?.allRounderScore ?? 0;
           const price = safeNum(info.priceLakhs);
-          const valuePerLakh =
-            price > 0 ? score / price : score;
+          const valuePerLakh = price > 0 ? score / price : score;
           buyStats.push({
             teamId,
             teamName: team.name,
@@ -239,7 +253,7 @@ export default function LeaderboardPage() {
             playerName: info.name,
             priceLakhs: price,
             score,
-            valuePerLakh
+            valuePerLakh,
           });
         });
       }
@@ -247,8 +261,9 @@ export default function LeaderboardPage() {
 
     rows.sort((a, b) => b.totalScore - a.totalScore);
 
+    // Only steals above 2 Cr (200 lakhs)
     const steals = [...buyStats]
-      .filter((b) => b.score > 0 && b.priceLakhs > 0)
+      .filter((b) => b.score > 0 && b.priceLakhs > 200)
       .sort((a, b) => b.valuePerLakh - a.valuePerLakh)
       .slice(0, 3);
 
@@ -280,6 +295,19 @@ export default function LeaderboardPage() {
   const first = teamRows[0];
   const second = teamRows[1];
   const third = teamRows[2];
+
+  const selectedRow =
+    (selectedTeamId &&
+      teamRows.find((t) => t.id === selectedTeamId)) ||
+    teamRows[0];
+  const selectedTeam =
+    selectedRow && teams ? teams[selectedRow.id] : null;
+  const selectedLayout =
+    selectedRow && layouts ? layouts[selectedRow.id] : null;
+
+  const batIds = normalizeSlotList(selectedLayout?.slots?.BAT);
+  const bowlIds = normalizeSlotList(selectedLayout?.slots?.BOWL);
+  const arIds = normalizeSlotList(selectedLayout?.slots?.AR);
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-black via-slate-950 to-black text-white px-4 py-6 md:px-6 lg:px-8">
@@ -322,7 +350,7 @@ export default function LeaderboardPage() {
               </p>
             </div>
 
-            {/* Podium a bit bigger */}
+            {/* Podium */}
             <div className="bg-black/40 rounded-2xl border border-white/5 p-4 md:p-6">
               <h3 className="text-base md:text-lg font-semibold mb-4">
                 Podium
@@ -353,7 +381,9 @@ export default function LeaderboardPage() {
                     className="w-28 md:w-40 h-28 md:h-40 rounded-t-2xl flex items-center justify-center text-center text-base md:text-xl font-bold shadow-lg shadow-yellow-500/40 border border-yellow-300/70"
                     style={{ backgroundColor: first.color }}
                   >
-                    <span className="px-3 truncate">{first.name}</span>
+                    <span className="px-3 truncate">
+                      {first.name}
+                    </span>
                   </div>
                   <div className="w-28 md:w-40 h-11 md:h-12 bg-yellow-400 flex items-center justify-center rounded-b-2xl">
                     <span className="text-black font-semibold">
@@ -383,10 +413,10 @@ export default function LeaderboardPage() {
               </div>
             </div>
 
-            {/* Full standings table, slightly larger */}
+            {/* Full standings table (clickable rows) */}
             <div className="bg-black/40 rounded-2xl border border-white/5 p-4 md:p-5">
               <h3 className="text-base md:text-lg font-semibold mb-3">
-                All teams
+                All teams (click to see squad)
               </h3>
               {teamRows.length === 0 ? (
                 <p className="text-sm text-gray-400">
@@ -404,43 +434,165 @@ export default function LeaderboardPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {teamRows.map((row, index) => (
-                      <tr
-                        key={row.id}
-                        className="border-b border-gray-800/70 last:border-b-0 hover:bg-white/5 transition-colors"
-                      >
-                        <td className="py-2.5 pr-3 font-semibold">
-                          #{index + 1}
-                        </td>
-                        <td className="py-2.5 pr-3">
-                          <span
-                            className="inline-flex items-center px-3 py-1 rounded-full text-xs md:text-sm font-semibold"
-                            style={{ backgroundColor: row.color }}
-                          >
-                            {row.name}
-                          </span>
-                        </td>
-                        <td className="py-2.5 pr-3 text-right font-medium">
-                          {row.totalScore.toFixed(1)}
-                        </td>
-                      </tr>
-                    ))}
+                    {teamRows.map((row, index) => {
+                      const isSelected =
+                        selectedRow &&
+                        selectedRow.id === row.id;
+                      return (
+                        <tr
+                          key={row.id}
+                          onClick={() =>
+                            setSelectedTeamId(row.id)
+                          }
+                          className={
+                            "border-b border-gray-800/70 cursor-pointer transition-colors " +
+                            (isSelected
+                              ? "bg-white/10"
+                              : "hover:bg-white/5")
+                          }
+                        >
+                          <td className="py-2.5 pr-3 font-semibold">
+                            #{index + 1}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <span
+                              className="inline-flex items-center px-3 py-1 rounded-full text-xs md:text-sm font-semibold"
+                              style={{ backgroundColor: row.color }}
+                            >
+                              {row.name}
+                            </span>
+                          </td>
+                          <td className="py-2.5 pr-3 text-right font-medium">
+                            {row.totalScore.toFixed(1)}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
+              )}
+            </div>
+
+            {/* Squad details for selected team */}
+            <div className="bg-black/40 rounded-2xl border border-white/5 p-4 md:p-5">
+              <h3 className="text-base md:text-lg font-semibold mb-3">
+                {selectedTeam
+                  ? `${selectedTeam.name} squad & points`
+                  : "Squad"}
+              </h3>
+              {!selectedTeam || !selectedLayout ? (
+                <p className="text-sm text-gray-400">
+                  No finalized layout for this team.
+                </p>
+              ) : (
+                <div className="grid md:grid-cols-3 gap-4 text-xs md:text-sm">
+                  {/* Batters */}
+                  <div>
+                    <h4 className="font-semibold mb-2">
+                      Batters (BAT)
+                    </h4>
+                    {batIds.length === 0 ? (
+                      <p className="text-gray-500 text-xs">
+                        No players.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {batIds.map((pid) => {
+                          if (!pid) return null;
+                          const sp = scoredPlayers[pid];
+                          if (!sp) return null;
+                          return (
+                            <li
+                              key={pid}
+                              className="flex justify-between"
+                            >
+                              <span>{sp.name}</span>
+                              <span className="text-gray-300">
+                                {sp.battingScore.toFixed(1)} pts
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Bowlers */}
+                  <div>
+                    <h4 className="font-semibold mb-2">
+                      Bowlers (BOWL)
+                    </h4>
+                    {bowlIds.length === 0 ? (
+                      <p className="text-gray-500 text-xs">
+                        No players.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {bowlIds.map((pid) => {
+                          if (!pid) return null;
+                          const sp = scoredPlayers[pid];
+                          if (!sp) return null;
+                          return (
+                            <li
+                              key={pid}
+                              className="flex justify-between"
+                            >
+                              <span>{sp.name}</span>
+                              <span className="text-gray-300">
+                                {sp.bowlingScore.toFixed(1)} pts
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* All-rounders */}
+                  <div>
+                    <h4 className="font-semibold mb-2">
+                      All-rounders (AR)
+                    </h4>
+                    {arIds.length === 0 ? (
+                      <p className="text-gray-500 text-xs">
+                        No players.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {arIds.map((pid) => {
+                          if (!pid) return null;
+                          const sp = scoredPlayers[pid];
+                          if (!sp) return null;
+                          return (
+                            <li
+                              key={pid}
+                              className="flex justify-between"
+                            >
+                              <span>{sp.name}</span>
+                              <span className="text-gray-300">
+                                {sp.allRounderScore.toFixed(1)} pts
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
               )}
             </div>
           </section>
         )}
 
-        {/* Stats: top steals + highest buys */}
+        {/* Stats: top steals + biggest buys */}
         <section className="grid md:grid-cols-2 gap-4">
           <div className="rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 shadow-lg p-4 md:p-5">
             <h2 className="text-lg font-semibold mb-3">
-              Top steal buys
+              Top steal buys (&gt; 2 Cr)
             </h2>
             {topSteals.length === 0 ? (
               <p className="text-xs md:text-sm text-gray-400">
-                No scored players available yet.
+                No qualifying steal buys yet.
               </p>
             ) : (
               <ul className="text-xs md:text-sm space-y-3">
@@ -454,12 +606,14 @@ export default function LeaderboardPage() {
                         {s.playerName}
                       </span>
                       <span className="text-gray-400 text-xs md:text-sm">
-                        {s.teamName} · Score {s.score.toFixed(1)} for{" "}
+                        {s.teamName} · Score{" "}
+                        {s.score.toFixed(1)} for{" "}
                         {(s.priceLakhs / 100).toFixed(2)} Cr
                       </span>
                     </div>
                     <span className="text-emerald-400 text-xs md:text-sm ml-3 whitespace-nowrap">
-                      #{idx + 1} · {s.valuePerLakh.toFixed(2)} pts/L
+                      #{idx + 1} ·{" "}
+                      {s.valuePerLakh.toFixed(2)} pts/L
                     </span>
                   </li>
                 ))}
@@ -468,7 +622,9 @@ export default function LeaderboardPage() {
           </div>
 
           <div className="rounded-2xl bg-white/5 backdrop-blur-md border border-white/10 shadow-lg p-4 md:p-5">
-            <h2 className="text-lg font-semibold mb-3">Biggest buys</h2>
+            <h2 className="text-lg font-semibold mb-3">
+              Biggest buys
+            </h2>
             {topHighBuys.length === 0 ? (
               <p className="text-xs md:text-sm text-gray-400">
                 No auction purchases recorded.
@@ -490,7 +646,8 @@ export default function LeaderboardPage() {
                       </span>
                     </div>
                     <span className="text-amber-400 text-xs md:text-sm ml-3 whitespace-nowrap">
-                      #{idx + 1} · Score {s.score.toFixed(1)}
+                      #{idx + 1} · Score{" "}
+                      {s.score.toFixed(1)}
                     </span>
                   </li>
                 ))}
