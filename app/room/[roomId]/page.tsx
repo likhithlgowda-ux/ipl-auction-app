@@ -241,7 +241,7 @@ async function autoSellToSingleActiveBidder(roomId: string) {
 
   updates[`${playerPath}/status`] = "sold";
   updates[`${playerPath}/soldToTeamId`] = lastTeamId;
-  updates[`${playerPath}/soldPriceLakhs`] = auctionNow.currentBidLakks;
+  updates[`${playerPath}/soldPriceLakhs`] = auctionNow.currentBidLakhs;
   updates[
     `rooms/${roomId}/teams/${lastTeamId}/purseRemainingLakhs`
   ] = newPurse;
